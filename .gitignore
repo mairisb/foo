@@ -1,0 +1,17 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Operating system artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Dependencies and generated output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+playwright-report/
+test-results/
