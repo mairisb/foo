@@ -10,7 +10,13 @@ export const metadata: Metadata = {
   description: "Your loyalty cards.",
   applicationName: "foo",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+  icons: {
+    icon: [
+      { url: "/favicon.ico?v=3", sizes: "16x16 32x32", type: "image/x-icon" },
+      { url: "/icon.svg?v=3", sizes: "any", type: "image/svg+xml" },
+    ],
+    apple: { url: "/apple-touch-icon.png?v=3", sizes: "180x180", type: "image/png" },
+  },
 };
 export const viewport: Viewport = {
   width: "device-width",

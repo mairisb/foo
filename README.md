@@ -68,6 +68,10 @@ Existing number-based cards and their barcode display remain readable. New cards
 
 Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, and the third adds image storage while preserving existing accounts and number cards.
 
+## Icons
+
+The header and favicon use the Material Symbols cards-stack icon in white on a rounded black background. Edit public/icon.svg, then run npm run icons:generate to regenerate the 16/32px favicon, 180px phone icon, and 192/512px app icons. Attribution and the icon's license are in public/licenses.
+
 ## Current limits
 
 The app operates online and is local only. Public hosting, email verification, password recovery, and physical checkout-scanner validation remain future work. A web manifest does not provide offline card access.

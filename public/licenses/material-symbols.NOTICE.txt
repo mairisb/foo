@@ -1,0 +1,9 @@
+Material Symbols cards-stack icon by Google, licensed under Apache License 2.0.
+
+Original collection: https://github.com/google/material-design-icons
+Icon source: https://api.iconify.design/material-symbols/cards-stack.svg
+Reference: https://www.shadcn.io/icon/material-symbols-cards-stack
+License copy: material-symbols-Apache-2.0.txt
+
+Changes: white icon fill, centered on a black rounded rectangle.
+The SVG is also rendered into the favicon and PNG app/phone icons.

@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="48" fill="#183d32"/><rect x="36" y="61" width="113" height="83" rx="15" fill="#d6f2b4"/><path d="M48 60V49a9 9 0 0 1 9-9h78a9 9 0 0 1 9 9v11" fill="none" stroke="#d6f2b4" stroke-width="10"/><rect x="113" y="83" width="45" height="33" rx="8" fill="#183d32"/><circle cx="129" cy="100" r="4" fill="#d6f2b4"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Material Symbols cards-stack, Apache-2.0. Modified: white fill and rounded black background. See licenses/material-symbols.NOTICE.txt. -->
+  <rect width="512" height="512" rx="96" fill="#000" />
+  <svg x="64" y="64" width="384" height="384" viewBox="0 0 24 24">
+    <path fill="#fff" d="M5.45 20.975Q4.625 21.1 4 20.6t-.75-1.325L2.025 10.35q-.125-.8.388-1.45t1.312-.775H4V14q0 1.65 1.175 2.825T8 18h11q-.2.525-.612.888t-1.013.437zM8 16.1q-.825 0-1.412-.587T6 14.1V5q0-.825.588-1.412T8 3h12q.825 0 1.413.588T22 5v9.1q0 .825-.587 1.413T20 16.1zM10 9h8V7h-8zm0 3h5v-2h-5z" />
+  </svg>
+</svg>
