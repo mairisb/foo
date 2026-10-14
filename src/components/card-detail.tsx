@@ -1,9 +1,11 @@
 ﻿"use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Card } from "@/lib/cards";
 import { formatNames } from "@/lib/cards";
 import { Dialog } from "./dialog";
 import { FieldError } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api-client";
 
 function CardImage({ card, position }: { card: Card; position: number }) {
   const [failed, setFailed] = useState(false);
@@ -24,11 +26,60 @@ function CardImage({ card, position }: { card: Card; position: number }) {
 export function CardDetail({
   card,
   onClose,
+  onDelete,
 }: {
   card: Card;
   onClose: () => void;
+  onDelete: (id: string) => void;
 }) {
   const [barcodeFailed, setBarcodeFailed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const restoreDeleteFocus = useRef(false);
+
+  useEffect(() => {
+    if (!confirming && restoreDeleteFocus.current) {
+      deleteButton.current?.focus();
+      restoreDeleteFocus.current = false;
+    }
+  }, [confirming]);
+
+  async function remove() {
+    setDeleting(true);
+    setError("");
+    try {
+      await api(`/api/cards/${card.id}`, { method: "DELETE" });
+      onDelete(card.id);
+    } catch (error) {
+      setError((error as Error).message);
+      setDeleting(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <Dialog title="Delete card?" onClose={onClose} closeDisabled={deleting}>
+        <p className="break-words">Delete &ldquo;{card.label}&rdquo; and its images? This cannot be undone.</p>
+        {error && <FieldError>{error}</FieldError>}
+        <div className="flex justify-end gap-2">
+          <Button autoFocus variant="outline" className="h-11" disabled={deleting}
+            onClick={() => {
+              restoreDeleteFocus.current = true;
+              setConfirming(false);
+              setError("");
+            }}>
+            Cancel
+          </Button>
+          <Button variant="destructive" className="h-11" disabled={deleting} onClick={remove}>
+            {deleting ? "Deleting..." : "Delete card"}
+          </Button>
+        </div>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog title={card.label} onClose={onClose}>
       {Array.from({ length: card.imageCount }, (_, index) => (
@@ -58,6 +109,9 @@ export function CardDetail({
           Couldn't load the barcode. Close this card and try again.
         </FieldError>
       )}
+      <Button ref={deleteButton} variant="destructive" className="h-11 w-fit" onClick={() => setConfirming(true)}>
+        Delete card
+      </Button>
     </Dialog>
   );
 }

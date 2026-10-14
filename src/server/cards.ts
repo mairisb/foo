@@ -38,6 +38,13 @@ export async function getCard(ownerId: string, id: string) {
   );
   return result.rows[0] ? toCard(result.rows[0]) : null;
 }
+export async function deleteCard(ownerId: string, id: string) {
+  const result = await db.query(
+    "DELETE FROM cards WHERE owner_id=$1 AND id=$2 RETURNING id",
+    [ownerId, id],
+  );
+  return result.rows.length > 0;
+}
 export async function createCard(ownerId: string, input: CardInput, images: Buffer[]) {
   if (images.length > maxCardImages) throw new Error("Too many card images.");
   const connection = await db.connect();

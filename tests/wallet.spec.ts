@@ -1,8 +1,8 @@
 ﻿import { test, expect } from "@playwright/test";
-import { cleanUp, email, password, retrySeconds, syntheticImage } from "./helpers";
+import { cleanUp, email, password, retrySeconds, syntheticImage, register, cardForm, origin } from "./helpers";
 
 test.afterAll(cleanUp);
-test("sign in, create cards, and read them after reload and a new session", async ({
+test("sign in, create, read, and delete cards across sessions", async ({
   page,
 }, testInfo) => {
   const browserErrors: string[] = [];
@@ -148,9 +148,82 @@ test("sign in, create cards, and read them after reload and a new session", asyn
   ).toBeVisible();
   await page.getByRole("button", { name: "Open Gym membership" }).click();
   await expect.poll(() => page.getByRole("img", { name: "Image 2 of Gym membership" }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
-  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: "Delete card", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Delete card?", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath("delete-confirmation.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Gym membership", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete card", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Delete card", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "My cards (3)", exact: true })).toBeVisible();
+  const names = ["Gym membership", "Daily coffee", "Weekly groceries"];
+  for (const [index, name] of names.entries()) {
+    await page.getByRole("button", { name: `Open ${name}`, exact: true }).click();
+    await page.getByRole("button", { name: "Delete card", exact: true }).click();
+    const deleted = page.waitForResponse(response => response.request().method() === "DELETE" && response.url().includes("/api/cards/"));
+    await page.getByRole("button", { name: "Delete card", exact: true }).click();
+    expect((await deleted).status()).toBe(200);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `Open ${name}`, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: `My cards (${2 - index})`, exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add card", exact: true })).toBeFocused();
+  }
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "My cards (0)", exact: true })).toBeVisible();
+  await expect(page.getByText("No cards yet.", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /share|edit|remove|delete|search/i }),
+    page.getByRole("button", { name: /share|edit|search/i }),
   ).toHaveCount(0);
   expect(browserErrors).toEqual([]);
+});
+
+test("failed deletion keeps the card and allows retry", async ({ page }, testInfo) => {
+  await register(page.request);
+  const created = await page.request.post("/api/cards", {
+    headers: { origin },
+    multipart: cardForm("Retry card"),
+  });
+  expect(created.status()).toBe(201);
+  const { card } = await created.json();
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Retry card", exact: true }).click();
+  await page.getByRole("button", { name: "Delete card", exact: true }).click();
+  let release!: () => void;
+  let received!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const pending = new Promise<void>(resolve => { received = resolve; });
+  const path = `**/api/cards/${card.id}`;
+  await page.route(path, async route => {
+    received();
+    await gate;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Couldn't delete the card. Try again." }),
+    });
+  });
+  try {
+    await page.getByRole("button", { name: "Delete card", exact: true }).click();
+    await pending;
+    await expect(page.getByRole("button", { name: "Deleting...", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Close dialog", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Delete card?", exact: true })).toBeVisible();
+  } finally {
+    release();
+  }
+  await expect(page.getByRole("alert")).toHaveText("Couldn't delete the card. Try again.");
+  expect((await page.request.get(`/api/cards/${card.id}`)).status()).toBe(200);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("delete-error.png"), fullPage: true, animations: "disabled" });
+  await page.unroute(path);
+  await page.getByRole("button", { name: "Delete card", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open Retry card", exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("No cards yet.", { exact: true })).toBeVisible();
 });

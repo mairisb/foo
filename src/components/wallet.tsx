@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import type { Card } from "@/lib/cards";
@@ -20,10 +20,24 @@ export function Wallet({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
   const [signingOut, setSigningOut] = useState(false);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const restoreAddFocus = useRef(false);
+
+  useEffect(() => {
+    if (restoreAddFocus.current) {
+      addButton.current?.focus();
+      restoreAddFocus.current = false;
+    }
+  }, [cards]);
 
   function save(card: Card) {
     setCards((old) => [card, ...old]);
     setAdding(false);
+  }
+  function remove(id: string) {
+    restoreAddFocus.current = true;
+    setCards(old => old.filter(card => card.id !== id));
+    setSelected(null);
   }
   async function signOut() {
     setSigningOut(true);
@@ -50,7 +64,7 @@ export function Wallet({
       <main>
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <h1 className="flex-1 text-xl font-semibold">My cards ({cards.length})</h1>
-          <Button className="h-11" onClick={() => setAdding(true)}>Add card</Button>
+          <Button ref={addButton} className="h-11" onClick={() => setAdding(true)}>Add card</Button>
         </div>
         {error && <FieldError className="mb-4">{error}</FieldError>}
         {cards.length === 0 ? (
@@ -81,7 +95,7 @@ export function Wallet({
       </main>
       {adding && <CardForm onSave={save} onClose={() => setAdding(false)} />}
       {selected && (
-        <CardDetail card={selected} onClose={() => setSelected(null)} />
+        <CardDetail card={selected} onClose={() => setSelected(null)} onDelete={remove} />
       )}
     </div>
   );

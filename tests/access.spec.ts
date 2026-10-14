@@ -32,7 +32,7 @@ test("local aliases are restricted to development and the configured port", () =
     ["https://foo.example"],
   );
 });
-test("only the owner can list, read, and display their cards", async ({
+test("only the owner can read and delete their cards and images", async ({
   playwright,
 }) => {
   const owner = await playwright.request.newContext({
@@ -47,6 +47,7 @@ test("only the owner can list, read, and display their cards", async ({
     baseURL: origin,
     extraHTTPHeaders: { origin },
   });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   try {
     expect((await anonymous.get("/api/cards")).status()).toBe(401);
     expect(
@@ -97,12 +98,35 @@ test("only the owner can list, read, and display their cards", async ({
         await owner.patch(`/api/cards/${card.id}`, { data: sampleCard })
       ).status(),
     ).toBe(405);
-    expect((await owner.delete(`/api/cards/${card.id}`)).status()).toBe(405);
+    expect((await other.delete(`/api/cards/${card.id}`)).status()).toBe(404);
+    expect((await anonymous.delete(`/api/cards/${card.id}`)).status()).toBe(401);
+    for (const blockedOrigin of ["https://untrusted.example", ""]) {
+      expect((await owner.delete(`/api/cards/${card.id}`, { headers: { origin: blockedOrigin } })).status()).toBe(403);
+    }
+    expect((await owner.delete("/api/cards/not-a-uuid")).status()).toBe(400);
+    expect((await owner.delete(`/api/cards/${randomUUID()}`)).status()).toBe(404);
+    expect((await owner.get(`/api/cards/${card.id}`)).status()).toBe(200);
     expect((await owner.post(`/api/cards/${card.id}/shares`)).status()).toBe(
       404,
     );
     expect((await owner.post("/api/shared")).status()).toBe(404);
+    const otherCardResponse = await other.post("/api/cards", { multipart: cardForm("Other owner's card") });
+    expect(otherCardResponse.status()).toBe(201);
+    const { card: otherCard } = await otherCardResponse.json();
+    expect((await pool.query("SELECT position FROM card_images WHERE card_id=$1", [card.id])).rows).toHaveLength(2);
+    const deleted = await owner.delete(`/api/cards/${card.id}`);
+    expect(deleted.status()).toBe(200);
+    expect(await deleted.json()).toEqual({ deleted: true });
+    expect(deleted.headers()["cache-control"]).toContain("no-store");
+    expect((await owner.delete(`/api/cards/${card.id}`)).status()).toBe(404);
+    expect((await (await owner.get("/api/cards")).json()).cards).toHaveLength(0);
+    for (const suffix of ["", "/images/1", "/images/2"]) {
+      expect((await owner.get(`/api/cards/${card.id}${suffix}`)).status()).toBe(404);
+    }
+    expect((await pool.query("SELECT position FROM card_images WHERE card_id=$1", [card.id])).rows).toHaveLength(0);
+    expect((await other.get(`/api/cards/${otherCard.id}`)).status()).toBe(200);
   } finally {
+    await pool.end();
     await owner.dispose();
     await other.dispose();
     await anonymous.dispose();
@@ -191,10 +215,12 @@ test("image cards validate uploads and accept zero, one, or two images", async (
       }
     }
     expect((await request.get(`/api/cards/${card.id}/images/${images.length + 1}`)).status()).toBe(404);
+    expect((await request.delete(`/api/cards/${card.id}`, { headers: { origin } })).status()).toBe(200);
+    expect((await request.get(`/api/cards/${card.id}`)).status()).toBe(404);
   }
 });
 
-test("existing number cards remain readable", async ({ request }) => {
+test("existing number cards remain readable and can be deleted", async ({ request }) => {
   const ownerId = await register(request);
   const legacyId = randomUUID();
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
@@ -207,6 +233,8 @@ test("existing number cards remain readable", async ({ request }) => {
     const barcode = await request.get(`/api/cards/${legacyId}/barcode`);
     expect(barcode.status()).toBe(200);
     expect(await barcode.text()).toContain("<svg");
+    expect((await request.delete(`/api/cards/${legacyId}`, { headers: { origin } })).status()).toBe(200);
+    expect((await request.get(`/api/cards/${legacyId}/barcode`)).status()).toBe(404);
   } finally {
     await pool.end();
   }

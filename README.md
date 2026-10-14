@@ -2,11 +2,11 @@
 
 A mobile-friendly web wallet for your own loyalty cards.
 
-First iteration: create an account or sign in, add a card with a name and zero, one, or two images, and open your saved cards to view the images. Images can be opened full size.
+First iteration: create an account or sign in, add a card with a name and zero, one, or two images, and open your saved cards to view the images. Images can be opened full size. Delete a card from its detail view after confirming; this permanently removes the card and its images.
 
 The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutral theme, Tailwind CSS, and phone-friendly control sizes. Components live in src/components/ui; components.json records the base-nova preset. Base UI supplies the underlying accessibility and validation behavior. The login page opens on sign-in, with account creation available as a separate form.
 
-Sharing, search, editing, and deletion are outside this iteration.
+Sharing, search, and editing are outside this iteration.
 
 ## Run locally
 
@@ -44,7 +44,7 @@ npm test
 npm run build
 ```
 
-Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence, upload validation, existing number cards, and the complete create-and-read flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
+Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence, upload validation, existing number cards, confirmed deletion and image cleanup, cancellation, failure and retry, and the complete card flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
 
 ## Code
 

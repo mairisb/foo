@@ -12,16 +12,18 @@ export function Dialog({
   title,
   children,
   onClose,
+  closeDisabled = false,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  closeDisabled?: boolean;
 }) {
   return (
     <ShadcnDialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !closeDisabled) onClose();
       }}
     >
       <DialogContent
@@ -32,6 +34,7 @@ export function Dialog({
           <DialogTitle className="min-w-0 break-words">{title}</DialogTitle>
           <DialogClose
             aria-label="Close dialog"
+            disabled={closeDisabled}
             render={<Button variant="ghost" className="h-11" />}
           >
             Close
