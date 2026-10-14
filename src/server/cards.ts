@@ -1,6 +1,6 @@
 ﻿import "server-only";
 import { randomUUID } from "node:crypto";
-import { maxCardImages, type Card, type CardInput, type BarcodeFormat } from "@/lib/cards";
+import type { Card, CardInput, BarcodeFormat } from "@/lib/cards";
 import { db } from "./db";
 
 type CardRow = {
@@ -45,8 +45,7 @@ export async function deleteCard(ownerId: string, id: string) {
   );
   return result.rows.length > 0;
 }
-export async function createCard(ownerId: string, input: CardInput, images: Buffer[]) {
-  if (images.length > maxCardImages) throw new Error("Too many card images.");
+export async function createCard(ownerId: string, input: CardInput, images: AsyncIterable<Buffer>) {
   const connection = await db.connect();
   try {
     await connection.query("BEGIN");
@@ -55,14 +54,16 @@ export async function createCard(ownerId: string, input: CardInput, images: Buff
       [randomUUID(), ownerId, input.label],
     );
     const row = result.rows[0];
-    for (let index = 0; index < images.length; index++) {
+    let imageCount = 0;
+    for await (const image of images) {
+      imageCount++;
       await connection.query(
         "INSERT INTO card_images (card_id,position,data) VALUES ($1,$2,$3)",
-        [row.id, index + 1, images[index]],
+        [row.id, imageCount, image],
       );
     }
     await connection.query("COMMIT");
-    return toCard({ ...row, image_count: images.length });
+    return toCard({ ...row, image_count: imageCount });
   } catch (error) {
     await connection.query("ROLLBACK");
     throw error;

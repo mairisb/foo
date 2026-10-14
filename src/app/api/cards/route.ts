@@ -18,8 +18,8 @@ export async function POST(request: Request) {
   try {
     verifyOrigin(request);
     const ownerId = await owner(request);
-    const { input, images } = await readCardUpload(request);
-    return json({ card: await createCard(ownerId, input, images) }, 201);
+    const card = await readCardUpload(request, (input, images) => createCard(ownerId, input, images));
+    return json({ card }, 201);
   } catch (error) {
     return handleError(error);
   }

@@ -2,7 +2,7 @@
 
 A mobile-friendly web wallet for your own loyalty cards.
 
-First iteration: create an account or sign in, add a card with a name and zero, one, or two images, and open your saved cards to view the images. Images can be opened full size. Delete a card from its detail view after confirming; this permanently removes the card and its images.
+First iteration: create an account or sign in, add a card with a name and any number of optional images, and open your saved cards to view the images. Images can be opened full size. Delete a card from its detail view after confirming; this permanently removes the card and its images.
 
 The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutral theme, Tailwind CSS, and phone-friendly control sizes. Components live in src/components/ui; components.json records the base-nova preset. Base UI supplies the underlying accessibility and validation behavior. The login page opens on sign-in, with account creation available as a separate form.
 
@@ -60,13 +60,15 @@ Better Auth handles credentials and sessions. Parameterized SQL queries through 
 
 ## Images
 
-Each new card accepts zero, one, or two JPG, PNG, or WebP images, up to 10 MB each. The server limits the complete request to 20 MB plus 64 KB of form overhead and decodes images with a 60-million-pixel limit. sharp applies camera orientation, resizes to fit within 2000 by 2000 pixels without enlarging, removes metadata, and re-encodes as JPEG. Each stored image is limited to 3 MB.
+Each new card accepts any number of JPG, PNG, or WebP images, up to 10 MB each. Cards with no images are valid. Select several images at once or choose again to append more, preview them, and remove individual selections before saving.
+
+The server streams uploads with busboy into a private temporary directory and normalizes and stores one image at a time, keeping the complete upload out of memory. Temporary files are removed when the request finishes. There is no image-count or aggregate upload-size cap. Images are decoded with a 60-million-pixel limit. sharp applies camera orientation, resizes to fit within 2000 by 2000 pixels without enlarging, removes metadata, and re-encodes as JPEG. Each stored image is limited to 3 MB.
 
 Image bytes live in PostgreSQL's card_images table and persist in the same Docker volume as the cards and accounts. Card and image writes are transactional. Images are served only to the signed-in owner through /api/cards/[id]/images/[position], with private no-store caching. Back up the database to preserve the images; there is no separate upload directory or public image URL.
 
 Existing number-based cards and their barcode display remain readable. New cards do not ask for a number or barcode format. HEIC and other formats are not accepted in this iteration.
 
-Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, and the third adds image storage while preserving existing accounts and number cards.
+Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, the third adds image storage, and the fourth removes the two-image restriction while preserving existing images and their order.
 
 ## Icons
 

@@ -8,7 +8,6 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui
 import {
   type Card,
   imageMimeTypes,
-  maxCardImages,
   maxImageBytes,
 } from "@/lib/cards";
 import { api } from "@/lib/api-client";
@@ -44,18 +43,19 @@ export function CardForm({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [images, setImages] = useState<Array<File | null>>([null, null]);
-  const imageInputs = useRef<Array<HTMLInputElement | null>>([]);
+  const [images, setImages] = useState<Array<{ id: number; file: File }>>([]);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const nextImageId = useRef(0);
 
-  function chooseImage(index: number, file: File | null) {
+  function chooseImages(files: File[]) {
     let message = "";
-    if (file && file.size > maxImageBytes) message = "Each image must be 10 MB or smaller.";
-    else if (file?.type && !imageMimeTypes.includes(file.type)) message = "Choose JPG, PNG, or WebP images.";
-    if (message) {
-      if (imageInputs.current[index]) imageInputs.current[index]!.value = "";
-      file = null;
+    if (files.some(file => file.size > maxImageBytes)) message = "Each image must be 10 MB or smaller.";
+    else if (files.some(file => file.type && !imageMimeTypes.includes(file.type))) message = "Choose JPG, PNG, or WebP images.";
+    if (imageInput.current) imageInput.current.value = "";
+    if (!message) {
+      const added = files.map(file => ({ id: nextImageId.current++, file }));
+      setImages(old => [...old, ...added]);
     }
-    setImages(old => old.map((current, slot) => slot === index ? file : current));
     setError(message);
   }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -65,7 +65,7 @@ export function CardForm({
     const form = new FormData(event.currentTarget);
     const upload = new FormData();
     upload.set("label", String(form.get("label")));
-    for (const image of images) if (image) upload.append("images", image);
+    for (const image of images) upload.append("images", image.file);
     try {
       const result = await api<{ card: Card }>("/api/cards", {
         method: "POST",
@@ -78,40 +78,48 @@ export function CardForm({
     }
   }
   return (
-    <Dialog title="Add card" onClose={onClose}>
+    <Dialog title="Add card" onClose={onClose} closeDisabled={busy}>
       <Form onSubmit={submit} className="grid gap-5">
         <BaseField.Root name="label" render={<Field />}>
           <BaseField.Label render={<FieldLabel />}>Card name</BaseField.Label>
           <Input className="h-11" maxLength={80} required disabled={busy} />
           <BaseField.Error render={<FieldError />} />
         </BaseField.Root>
-        {Array.from({ length: maxCardImages }, (_, index) => (
-          <Field key={index}>
-            <FieldLabel htmlFor={`card-image-${index}`}>Image {index + 1} (optional)</FieldLabel>
-            <Input
-              id={`card-image-${index}`}
-              ref={element => { imageInputs.current[index] = element; }}
-              className="h-11 py-2"
-              type="file"
-              accept={imageMimeTypes.join(",")}
-              disabled={busy}
-              onChange={event => chooseImage(index, event.currentTarget.files?.[0] ?? null)}
-            />
-            {images[index] && (
-              <ImagePreview file={images[index]} position={index + 1} />
-            )}
-            {images[index] && (
-              <Button type="button" variant="ghost" className="h-11 w-fit" disabled={busy}
-                onClick={() => {
-                  if (imageInputs.current[index]) imageInputs.current[index]!.value = "";
-                  chooseImage(index, null);
-                }}>
-                Clear image {index + 1}
-              </Button>
-            )}
-          </Field>
-        ))}
-        <FieldDescription>JPG, PNG or WebP. Up to 10 MB per image.</FieldDescription>
+        <Field>
+          <FieldLabel htmlFor="card-images">Images (optional)</FieldLabel>
+          <Input
+            id="card-images"
+            ref={imageInput}
+            className="hidden"
+            type="file"
+            multiple
+            accept={imageMimeTypes.join(",")}
+            disabled={busy}
+            onChange={event => chooseImages(Array.from(event.currentTarget.files ?? []))}
+          />
+          <Button type="button" variant="outline" className="h-11 w-fit" disabled={busy}
+            onClick={() => imageInput.current?.click()}>
+            Add images
+          </Button>
+          <FieldDescription>Choose one or more images. Choose again to add more. JPG, PNG or WebP, up to 10 MB each.</FieldDescription>
+        </Field>
+        {images.length > 0 && (
+          <ul className="grid gap-4">
+            {images.map((image, index) => (
+              <li key={image.id} className="grid gap-2">
+                <p className="break-all text-sm text-muted-foreground">{image.file.name}</p>
+                <ImagePreview file={image.file} position={index + 1} />
+                <Button type="button" variant="ghost" className="h-11 w-fit" disabled={busy}
+                  onClick={() => {
+                    setImages(old => old.filter(current => current.id !== image.id));
+                    setError("");
+                  }}>
+                  Remove image {index + 1}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
         {error && <FieldError>{error}</FieldError>}
         <Button className="h-11" type="submit" disabled={busy}>
           {busy ? "Saving..." : "Save card"}

@@ -6,7 +6,10 @@ test("sign in, create, read, and delete cards across sessions", async ({
   page,
 }, testInfo) => {
   const browserErrors: string[] = [];
+  let registering = true;
   page.on("console", (message) => {
+    // A signup retry explicitly checks and respects a 429 response below.
+    if (registering && message.location().url.endsWith("/api/auth/sign-up/email") && message.text().includes("429")) return;
     if (message.type() === "error") browserErrors.push(message.text());
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
@@ -40,6 +43,7 @@ test("sign in, create, read, and delete cards across sessions", async ({
   await expect(
     page.getByRole("heading", { name: /^My cards/, level: 1 }),
   ).toBeVisible();
+  registering = false;
   await page.getByRole("button", { name: "Add card", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Add card" })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -73,7 +77,9 @@ test("sign in, create, read, and delete cards across sessions", async ({
   await page.getByLabel("Card name", { exact: true }).fill("Daily coffee");
   const front = await syntheticImage();
   const back = await syntheticImage("Back");
-  await page.getByLabel("Image 1 (optional)", { exact: true }).setInputFiles(front);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Add images", exact: true }).click();
+  await (await chooser).setFiles(front);
   const savedOneImage = page.waitForResponse(response => response.url().endsWith("/api/cards") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Save card", exact: true }).click();
   expect((await (await savedOneImage).json()).card.imageCount).toBe(1);
@@ -82,15 +88,21 @@ test("sign in, create, read, and delete cards across sessions", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Add card", exact: true }).click();
   await page.getByLabel("Card name", { exact: true }).fill("Gym membership");
-  await page.getByLabel("Image 1 (optional)", { exact: true }).setInputFiles(front);
-  await page.getByLabel("Image 2 (optional)", { exact: true }).setInputFiles(back);
-  await page.getByRole("button", { name: "Clear image 2", exact: true }).click();
-  await expect(page.getByLabel("Image 2 (optional)", { exact: true })).toHaveValue("");
-  await page.getByLabel("Image 2 (optional)", { exact: true }).setInputFiles(back);
+  const extra = await syntheticImage("Extra");
+  const imageInput = page.getByLabel("Images (optional)", { exact: true });
+  await imageInput.setInputFiles([front, back, extra]);
+  for (const position of [1, 2, 3]) {
+    await expect.poll(() => page.getByRole("img", { name: `Preview of image ${position}`, exact: true }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  }
+  await page.getByRole("button", { name: "Remove image 2", exact: true }).click();
+  await expect(page.getByRole("img", { name: /^Preview of image/ })).toHaveCount(2);
+  await expect(imageInput).toHaveValue("");
+  await imageInput.setInputFiles([back, front]);
+  await expect(page.getByRole("img", { name: /^Preview of image/ })).toHaveCount(4);
   await page.screenshot({ path: testInfo.outputPath("add-images.png"), fullPage: true, animations: "disabled" });
-  const savedTwoImages = page.waitForResponse(response => response.url().endsWith("/api/cards") && response.request().method() === "POST");
+  const savedImages = page.waitForResponse(response => response.url().endsWith("/api/cards") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Save card", exact: true }).click();
-  expect((await (await savedTwoImages).json()).card.imageCount).toBe(2);
+  expect((await (await savedImages).json()).card.imageCount).toBe(4);
   await expect(page.getByRole("button", { name: "Open Gym membership" })).toBeVisible();
   await page.reload();
   await page.screenshot({
@@ -114,7 +126,7 @@ test("sign in, create, read, and delete cards across sessions", async ({
   await expect(page.getByRole("img", { name: "Image 1 of Daily coffee" })).toBeVisible();
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.getByRole("button", { name: "Open Gym membership" }).click();
-  for (const position of [1, 2]) {
+  for (const position of [1, 2, 3, 4]) {
     const image = page.getByRole("img", { name: `Image ${position} of Gym membership` });
     await expect(image).toBeVisible();
     await expect.poll(() => image.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
@@ -147,7 +159,7 @@ test("sign in, create, read, and delete cards across sessions", async ({
     page.getByRole("button", { name: "Open Weekly groceries" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Open Gym membership" }).click();
-  await expect.poll(() => page.getByRole("img", { name: "Image 2 of Gym membership" }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => page.getByRole("img", { name: "Image 4 of Gym membership" }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Delete card", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Delete card?", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();

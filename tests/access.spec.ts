@@ -5,6 +5,8 @@ import { maxImageBytes } from "../src/lib/cards";
 import sharp from "sharp";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 test.afterAll(cleanUp);
 test("local aliases are restricted to development and the configured port", () => {
@@ -64,17 +66,17 @@ test("only the owner can read and delete their cards and images", async ({
     ).toBe(403);
     await register(owner);
     await register(other);
-    const created = await owner.post("/api/cards", { multipart: cardForm(sampleCard.label, [await syntheticImage(), await syntheticImage("Back")]) });
+    const created = await owner.post("/api/cards", { multipart: cardForm(sampleCard.label, [await syntheticImage(), await syntheticImage("Back"), await syntheticImage("Extra")]) });
     expect(created.status()).toBe(201);
     const { card } = await created.json();
-    expect(card.imageCount).toBe(2);
+    expect(card.imageCount).toBe(3);
     const ownCards = await owner.get("/api/cards");
     expect((await ownCards.json()).cards).toHaveLength(1);
     expect(ownCards.headers()["cache-control"]).toContain("no-store");
     expect((await (await other.get("/api/cards")).json()).cards).toHaveLength(
       0,
     );
-    for (const suffix of ["", "/images/1", "/images/2"]) {
+    for (const suffix of ["", "/images/1", "/images/2", "/images/3"]) {
       expect((await other.get(`/api/cards/${card.id}${suffix}`)).status()).toBe(
         404,
       );
@@ -83,7 +85,7 @@ test("only the owner can read and delete their cards and images", async ({
       ).toBe(401);
     }
     expect((await owner.get(`/api/cards/${card.id}`)).status()).toBe(200);
-    for (const position of [1, 2]) {
+    for (const position of [1, 2, 3]) {
       const image = await owner.get(`/api/cards/${card.id}/images/${position}`);
       expect(image.status()).toBe(200);
       expect(image.headers()["content-type"]).toBe("image/jpeg");
@@ -91,7 +93,9 @@ test("only the owner can read and delete their cards and images", async ({
       expect(image.headers()["x-content-type-options"]).toBe("nosniff");
       expect((await sharp(await image.body()).metadata()).format).toBe("jpeg");
     }
-    expect((await owner.get(`/api/cards/${card.id}/images/3`)).status()).toBe(404);
+    for (const position of ["4", "0", "-1", "01", "1.5", "invalid", "2147483648"]) {
+      expect((await owner.get(`/api/cards/${card.id}/images/${position}`)).status()).toBe(404);
+    }
     expect((await owner.get(`/api/cards/${card.id}/barcode`)).status()).toBe(404);
     expect(
       (
@@ -113,14 +117,14 @@ test("only the owner can read and delete their cards and images", async ({
     const otherCardResponse = await other.post("/api/cards", { multipart: cardForm("Other owner's card") });
     expect(otherCardResponse.status()).toBe(201);
     const { card: otherCard } = await otherCardResponse.json();
-    expect((await pool.query("SELECT position FROM card_images WHERE card_id=$1", [card.id])).rows).toHaveLength(2);
+    expect((await pool.query("SELECT position FROM card_images WHERE card_id=$1", [card.id])).rows).toHaveLength(3);
     const deleted = await owner.delete(`/api/cards/${card.id}`);
     expect(deleted.status()).toBe(200);
     expect(await deleted.json()).toEqual({ deleted: true });
     expect(deleted.headers()["cache-control"]).toContain("no-store");
     expect((await owner.delete(`/api/cards/${card.id}`)).status()).toBe(404);
     expect((await (await owner.get("/api/cards")).json()).cards).toHaveLength(0);
-    for (const suffix of ["", "/images/1", "/images/2"]) {
+    for (const suffix of ["", "/images/1", "/images/2", "/images/3"]) {
       expect((await owner.get(`/api/cards/${card.id}${suffix}`)).status()).toBe(404);
     }
     expect((await pool.query("SELECT position FROM card_images WHERE card_id=$1", [card.id])).rows).toHaveLength(0);
@@ -133,7 +137,7 @@ test("only the owner can read and delete their cards and images", async ({
   }
 });
 
-test("image cards validate uploads and accept zero, one, or two images", async ({
+test("image cards validate uploads and accept multiple images without a count cap", async ({
   request,
 }) => {
   await register(request);
@@ -153,14 +157,7 @@ test("image cards validate uploads and accept zero, one, or two images", async (
       })
     ).status(),
   ).toBe(400);
-  expect(
-    (
-      await request.post("/api/cards", {
-        headers: { origin },
-        multipart: cardForm("Too many images", [await syntheticImage(), await syntheticImage(), await syntheticImage()]),
-      })
-    ).status(),
-  ).toBe(400);
+  const temporaryBefore = new Set(await readdir(tmpdir()));
   expect(
     (
       await request.post("/api/cards", {
@@ -193,7 +190,12 @@ test("image cards validate uploads and accept zero, one, or two images", async (
   const jpeg = await syntheticImage("Front", "jpeg");
   const oriented = { ...jpeg, buffer: await sharp(jpeg.buffer).withMetadata({ orientation: 6 }).jpeg().toBuffer() };
   const webp = await syntheticImage("Back", "webp");
-  for (const images of [[], [png], [oriented, webp]]) {
+  const padded = Buffer.alloc(7 * 1024 * 1024);
+  png.buffer.copy(padded);
+  const large = { ...png, buffer: padded };
+  const exactLimit = Buffer.alloc(maxImageBytes);
+  png.buffer.copy(exactLimit);
+  for (const images of [[], [png], [oriented, webp], Array.from({ length: 20 }, () => png), [large, large, large], [{ ...png, buffer: exactLimit }]]) {
     const response = await request.post("/api/cards", {
       headers: { origin },
       multipart: cardForm(`${images.length} images`, images),
@@ -203,6 +205,10 @@ test("image cards validate uploads and accept zero, one, or two images", async (
     expect(card.imageCount).toBe(images.length);
     expect(card.cardNumber).toBeUndefined();
     expect(card.barcodeFormat).toBeUndefined();
+    for (const [index, source] of images.entries()) {
+      const expectedImage = await sharp(source.buffer).rotate().flatten({ background: "#ffffff" }).jpeg({ quality: 85 }).toBuffer();
+      expect(await (await request.get(`/api/cards/${card.id}/images/${index + 1}`)).body()).toEqual(expectedImage);
+    }
     for (let position = 1; position <= images.length; position++) {
       const response = await request.get(`/api/cards/${card.id}/images/${position}`);
       expect(response.status()).toBe(200);
@@ -218,6 +224,32 @@ test("image cards validate uploads and accept zero, one, or two images", async (
     expect((await request.delete(`/api/cards/${card.id}`, { headers: { origin } })).status()).toBe(200);
     expect((await request.get(`/api/cards/${card.id}`)).status()).toBe(404);
   }
+  const laterInvalid = cardForm("Invalid later image", [png, png, png, { ...png, buffer: Buffer.from("invalid image") }]);
+  expect((await request.post("/api/cards", { headers: { origin }, multipart: laterInvalid })).status()).toBe(400);
+  expect((await (await request.get("/api/cards")).json()).cards).toHaveLength(0);
+  const nameLast = new FormData();
+  nameLast.append("images", new Blob([new Uint8Array(png.buffer)], { type: png.mimeType }), png.name);
+  nameLast.set("label", "Name after image");
+  const lastFieldCard = await request.post("/api/cards", { headers: { origin }, multipart: nameLast });
+  expect(lastFieldCard.status()).toBe(201);
+  expect((await lastFieldCard.json()).card.imageCount).toBe(1);
+  const duplicate = cardForm("Repeated name");
+  duplicate.append("label", "Another name");
+  expect((await request.post("/api/cards", { headers: { origin }, multipart: duplicate })).status()).toBe(400);
+  const invalidLaterField = new FormData();
+  for (let index = 0; index < 20; index++) {
+    invalidLaterField.append("images", new Blob([new Uint8Array(png.buffer)], { type: png.mimeType }), png.name);
+  }
+  invalidLaterField.append("label", "Valid name");
+  invalidLaterField.append("label", "Repeated name");
+  expect((await request.post("/api/cards", { headers: { origin }, multipart: invalidLaterField })).status()).toBe(400);
+  expect((await (await request.get("/api/cards")).json()).cards).toHaveLength(1);
+  expect((await request.post("/api/cards", {
+    headers: { origin, "content-type": "multipart/form-data; boundary=unfinished" },
+    data: '--unfinished\r\nContent-Disposition: form-data; name="images"; filename="broken.png"\r\nContent-Type: image/png\r\n\r\nnot a complete form',
+  })).status()).toBe(400);
+  const temporaryAfter = (await readdir(tmpdir())).filter(name => name.startsWith("foo-upload-") && !temporaryBefore.has(name));
+  expect(temporaryAfter).toEqual([]);
 });
 
 test("existing number cards remain readable and can be deleted", async ({ request }) => {

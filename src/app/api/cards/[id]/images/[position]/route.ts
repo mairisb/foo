@@ -8,7 +8,9 @@ export async function GET(
   try {
     const ownerId = await owner(request);
     const { id, position } = await context.params;
-    if (position !== "1" && position !== "2") throw new HttpError(404, "Image not found.");
+    if (!/^[1-9]\d*$/.test(position) || Number(position) > 2147483647) {
+      throw new HttpError(404, "Image not found.");
+    }
     const data = await getCardImage(ownerId, recordId(id), Number(position));
     if (!data) throw new HttpError(404, "Image not found.");
     return new Response(new Uint8Array(data), {

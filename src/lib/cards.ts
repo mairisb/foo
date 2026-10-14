@@ -2,7 +2,6 @@
 
 export const barcodeFormats = ["code128", "ean13", "qrcode"] as const;
 export type BarcodeFormat = (typeof barcodeFormats)[number];
-export const maxCardImages = 2;
 export const maxImageBytes = 10 * 1024 * 1024;
 export const imageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 export const cardInput = z
