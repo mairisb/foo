@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,27 @@ import {
 } from "@/lib/cards";
 import { api } from "@/lib/api-client";
 import { Dialog } from "./dialog";
+
+function ImagePreview({ file, position }: { file: File; position: number }) {
+  const [preview, setPreview] = useState({ url: "", failed: false });
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setPreview({ url, failed: false });
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  if (preview.failed) return <FieldError>Couldn't preview image {position}. Try another image.</FieldError>;
+  if (!preview.url) return null;
+  return (
+    <img
+      src={preview.url}
+      alt={`Preview of image ${position}`}
+      className="max-h-48 w-full rounded-lg border bg-white object-contain"
+      onError={() => setPreview(current => ({ ...current, failed: true }))}
+    />
+  );
+}
 
 export function CardForm({
   onSave,
@@ -76,6 +97,9 @@ export function CardForm({
               disabled={busy}
               onChange={event => chooseImage(index, event.currentTarget.files?.[0] ?? null)}
             />
+            {images[index] && (
+              <ImagePreview file={images[index]} position={index + 1} />
+            )}
             {images[index] && (
               <Button type="button" variant="ghost" className="h-11 w-fit" disabled={busy}
                 onClick={() => {
