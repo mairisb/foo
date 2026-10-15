@@ -2,11 +2,27 @@ import { readFile, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 
 const svg = await readFile(new URL("../public/icon.svg", import.meta.url));
-const sizes = [16, 32, 180, 192, 512];
+const sizes = [16, 32];
 const pngs = new Map();
 for (const size of sizes) {
     pngs.set(size, await sharp(svg).resize(size, size).png().toBuffer());
 }
+
+// Keep the glyph inside the maskable safe circle (radius 40% of the canvas).
+// Flatten the rounded source onto black, then add padding for launcher masks.
+const homeIcon = await sharp(svg)
+    .resize(416, 416)
+    .flatten({ background: "#000000" })
+    .extend({
+        top: 48,
+        bottom: 48,
+        left: 48,
+        right: 48,
+        background: "#000000",
+    })
+    .png()
+    .toBuffer();
+
 for (const [size, name] of [
     [180, "apple-touch-icon.png"],
     [192, "icon-192.png"],
@@ -14,7 +30,7 @@ for (const [size, name] of [
 ]) {
     await writeFile(
         new URL(`../public/${name}`, import.meta.url),
-        pngs.get(size),
+        await sharp(homeIcon).resize(size, size).png().toBuffer(),
     );
 }
 
@@ -39,4 +55,4 @@ await writeFile(
     new URL("../public/favicon.ico", import.meta.url),
     Buffer.concat([directory, ...faviconSizes.map((size) => pngs.get(size))]),
 );
-console.log("Generated favicon and phone icons from public/icon.svg.");
+console.log("Generated favicon and maskable phone icons from public/icon.svg.");
