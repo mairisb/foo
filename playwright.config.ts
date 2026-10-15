@@ -28,7 +28,7 @@ export default defineConfig({
         {
             name: "android",
             testMatch: "**/wallet.spec.ts",
-            grep: /browser Back/,
+            grep: /browser Back|Scanic/,
             use: {
                 ...devices["Pixel 7"],
                 defaultBrowserType: "chromium",

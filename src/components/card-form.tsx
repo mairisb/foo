@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { ArrowDown, ArrowUp, RotateCcw, RotateCw } from "lucide-react";
@@ -20,6 +20,7 @@ import {
 } from "@/lib/cards";
 import { api } from "@/lib/api-client";
 import { Dialog } from "./dialog";
+import { PerspectiveEditor } from "./perspective-editor";
 
 function ImagePreview({
     file,
@@ -115,6 +116,43 @@ export function CardForm({
     const formId = useId();
     const nextImageId = useRef(0);
     const [orderMessage, setOrderMessage] = useState("");
+    const [adjustingId, setAdjustingId] = useState<string | null>(null);
+    const [adjustingBusy, setAdjustingBusy] = useState(false);
+    const adjustmentButton = useRef<HTMLButtonElement | null>(null);
+    const restoreAdjustmentFocus = useRef(false);
+    const controlsDisabled = busy || adjustingId !== null;
+
+    useEffect(() => {
+        if (adjustingId === null && restoreAdjustmentFocus.current) {
+            adjustmentButton.current?.focus();
+            restoreAdjustmentFocus.current = false;
+        }
+    }, [adjustingId]);
+
+    const cancelAdjustment = useCallback(() => {
+        restoreAdjustmentFocus.current = true;
+        setAdjustingId(null);
+        setAdjustingBusy(false);
+    }, []);
+
+    const applyAdjustment = useCallback(
+        (file: File) => {
+            setImages((current) =>
+                current.map((image) =>
+                    image.id === adjustingId
+                        ? { kind: "new", id: image.id, file, rotation: 0 }
+                        : image,
+                ),
+            );
+            setOrderMessage(
+                "Image straightened. Save the card to keep your changes.",
+            );
+            restoreAdjustmentFocus.current = true;
+            setAdjustingId(null);
+            setAdjustingBusy(false);
+        },
+        [adjustingId],
+    );
 
     function moveImage(index: number, direction: -1 | 1) {
         const destination = index + direction;
@@ -178,6 +216,9 @@ export function CardForm({
     }
     async function submit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
+        if (adjustingId !== null) {
+            return;
+        }
         setBusy(true);
         setError("");
         const form = new FormData(event.currentTarget);
@@ -263,14 +304,14 @@ export function CardForm({
         <Dialog
             title={card ? "Edit card" : "Add card"}
             onClose={onClose}
-            closeDisabled={busy}
+            closeDisabled={busy || adjustingBusy}
             footer={
                 <div className="flex justify-end gap-2">
                     <Button
                         type="button"
                         variant="outline"
                         className="h-11"
-                        disabled={busy}
+                        disabled={busy || adjustingBusy}
                         onClick={onClose}
                     >
                         Cancel
@@ -279,7 +320,7 @@ export function CardForm({
                         className="h-11"
                         type="submit"
                         form={formId}
-                        disabled={busy}
+                        disabled={controlsDisabled}
                     >
                         {busy
                             ? "Saving..."
@@ -299,7 +340,7 @@ export function CardForm({
                         className="h-11"
                         maxLength={80}
                         required
-                        disabled={busy}
+                        disabled={controlsDisabled}
                         defaultValue={card?.label ?? ""}
                     />
                     <BaseField.Error render={<FieldError />} />
@@ -315,7 +356,7 @@ export function CardForm({
                         type="file"
                         multiple
                         accept={imageMimeTypes.join(",")}
-                        disabled={busy}
+                        disabled={controlsDisabled}
                         onChange={(event) =>
                             chooseImages(
                                 Array.from(event.currentTarget.files ?? []),
@@ -326,7 +367,7 @@ export function CardForm({
                         type="button"
                         variant="outline"
                         className="h-11 w-fit"
-                        disabled={busy}
+                        disabled={controlsDisabled}
                         onClick={() => imageInput.current?.click()}
                     >
                         Add images
@@ -334,7 +375,8 @@ export function CardForm({
                     <FieldDescription>
                         Choose one or more images. Choose again to add more. Use
                         the arrows to reorder or rotate them. JPG, PNG or WebP,
-                        up to 10 MB each.
+                        up to 10 MB each. Use Adjust corners to straighten a
+                        photographed card.
                     </FieldDescription>
                 </Field>
                 {images.length > 0 && (
@@ -346,20 +388,40 @@ export function CardForm({
                                         ? image.file.name
                                         : `Image ${index + 1}`}
                                 </p>
-                                <ImagePreview
-                                    file={
-                                        image.kind === "new"
-                                            ? image.file
-                                            : undefined
-                                    }
-                                    src={
-                                        image.kind === "saved"
-                                            ? image.src
-                                            : undefined
-                                    }
-                                    position={index + 1}
-                                    rotation={image.rotation}
-                                />
+                                {adjustingId === image.id ? (
+                                    <PerspectiveEditor
+                                        file={
+                                            image.kind === "new"
+                                                ? image.file
+                                                : undefined
+                                        }
+                                        src={
+                                            image.kind === "saved"
+                                                ? image.src
+                                                : undefined
+                                        }
+                                        rotation={image.rotation}
+                                        position={index + 1}
+                                        onApply={applyAdjustment}
+                                        onCancel={cancelAdjustment}
+                                        onBusyChange={setAdjustingBusy}
+                                    />
+                                ) : (
+                                    <ImagePreview
+                                        file={
+                                            image.kind === "new"
+                                                ? image.file
+                                                : undefined
+                                        }
+                                        src={
+                                            image.kind === "saved"
+                                                ? image.src
+                                                : undefined
+                                        }
+                                        position={index + 1}
+                                        rotation={image.rotation}
+                                    />
+                                )}
                                 <div className="flex flex-wrap items-center gap-2">
                                     <Button
                                         type="button"
@@ -367,7 +429,9 @@ export function CardForm({
                                         size="icon"
                                         className="size-11"
                                         aria-label={`Move image ${index + 1} up`}
-                                        disabled={busy || index === 0}
+                                        disabled={
+                                            controlsDisabled || index === 0
+                                        }
                                         onClick={() => moveImage(index, -1)}
                                     >
                                         <ArrowUp aria-hidden="true" />
@@ -379,7 +443,8 @@ export function CardForm({
                                         className="size-11"
                                         aria-label={`Move image ${index + 1} down`}
                                         disabled={
-                                            busy || index === images.length - 1
+                                            controlsDisabled ||
+                                            index === images.length - 1
                                         }
                                         onClick={() => moveImage(index, 1)}
                                     >
@@ -391,7 +456,7 @@ export function CardForm({
                                         size="icon"
                                         className="size-11"
                                         aria-label={`Rotate image ${index + 1} left`}
-                                        disabled={busy}
+                                        disabled={controlsDisabled}
                                         onClick={() => rotateImage(index, -90)}
                                     >
                                         <RotateCcw aria-hidden="true" />
@@ -402,16 +467,30 @@ export function CardForm({
                                         size="icon"
                                         className="size-11"
                                         aria-label={`Rotate image ${index + 1} right`}
-                                        disabled={busy}
+                                        disabled={controlsDisabled}
                                         onClick={() => rotateImage(index, 90)}
                                     >
                                         <RotateCw aria-hidden="true" />
                                     </Button>
                                     <Button
                                         type="button"
+                                        variant="outline"
+                                        className="h-11"
+                                        disabled={controlsDisabled}
+                                        aria-label={`Adjust image ${index + 1} corners`}
+                                        onClick={(event) => {
+                                            adjustmentButton.current =
+                                                event.currentTarget;
+                                            setAdjustingId(image.id);
+                                        }}
+                                    >
+                                        Adjust corners
+                                    </Button>
+                                    <Button
+                                        type="button"
                                         variant="ghost"
                                         className="h-11 w-fit"
-                                        disabled={busy}
+                                        disabled={controlsDisabled}
                                         onClick={() => {
                                             setImages((old) =>
                                                 old.filter(

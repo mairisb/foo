@@ -116,6 +116,66 @@ export async function rotationImage() {
     };
 }
 
+export async function perspectiveImage() {
+    // Four colored document regions on a gray, oblique photograph.
+    const source =
+        Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">
+        <rect width="400" height="300" fill="#555"/>
+        <path fill="#fff" d="M84 44 346 74 316 266 44 226Z"/>
+        <g transform="translate(19.8 15.2) scale(.9)">
+        <path fill="#f02020" d="M84 44 215 59 198 152 64 135Z"/>
+        <path fill="#20c020" d="M215 59 346 74 331 170 198 152Z"/>
+        <path fill="#e0e020" d="M198 152 331 170 316 266 180 246Z"/>
+        <path fill="#2020f0" d="M64 135 198 152 180 246 44 226Z"/>
+        </g>
+    </svg>`);
+    return {
+        name: "perspective.png",
+        mimeType: "image/png",
+        buffer: await sharp(source).png().toBuffer(),
+    };
+}
+
+export async function expectPerspectiveColors(
+    bytes: Buffer,
+    clockwise = false,
+) {
+    const { data, info } = await sharp(bytes)
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    const colors = clockwise
+        ? [
+              [32, 32, 240],
+              [240, 32, 32],
+              [224, 224, 32],
+              [32, 192, 32],
+          ]
+        : [
+              [240, 32, 32],
+              [32, 192, 32],
+              [32, 32, 240],
+              [224, 224, 32],
+          ];
+    for (const [index, [x, y]] of [
+        [0.2, 0.2],
+        [0.8, 0.2],
+        [0.2, 0.8],
+        [0.8, 0.8],
+    ].entries()) {
+        const offset =
+            (Math.floor(y * info.height) * info.width +
+                Math.floor(x * info.width)) *
+            info.channels;
+        for (let channel = 0; channel < 3; channel++) {
+            expect(
+                Math.abs(data[offset + channel] - colors[index][channel]),
+            ).toBeLessThan(35);
+        }
+    }
+    return { width: info.width, height: info.height };
+}
+
 export async function expectImageRotation(
     bytes: Buffer,
     rotation: ImageRotation,

@@ -1,4 +1,5 @@
 ﻿import { test, expect, type Page } from "@playwright/test";
+import sharp from "sharp";
 import {
     cleanUp,
     email,
@@ -11,6 +12,8 @@ import {
     origin,
     rotationImage,
     expectImageRotation,
+    perspectiveImage,
+    expectPerspectiveColors,
 } from "./helpers";
 
 test.afterAll(cleanUp);
@@ -31,6 +34,395 @@ async function dismissDialog(page: Page) {
         .getByRole("button", { name: /^(Close|Cancel)$/ })
         .click();
 }
+
+test("Scanic straightens document corners during upload and editing", async ({
+    page,
+}, testInfo) => {
+    const errors: string[] = [];
+    const externalRequests: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await register(page.request);
+    await page.goto("/");
+    const appOrigin = new URL(page.url()).origin;
+    page.on("request", (request) => {
+        if (
+            /^https?:/.test(request.url()) &&
+            new URL(request.url()).origin !== appOrigin
+        ) {
+            externalRequests.push(request.url());
+        }
+    });
+    const documentImage = await perspectiveImage();
+    const other = await rotationImage();
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    await page
+        .getByLabel("Card name", { exact: true })
+        .fill("Straightened card");
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles([documentImage, other]);
+    await page
+        .getByRole("button", { name: "Adjust image 1 corners", exact: true })
+        .click();
+    const section = page.getByRole("region", {
+        name: "Adjust image 1 corners",
+        exact: true,
+    });
+    await expect(
+        section.getByRole("button", { name: "Top-left corner", exact: true }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole("button", { name: "Save card", exact: true }),
+    ).toBeDisabled();
+    // Escape exits this tool and preserves the card form and original image.
+    await section
+        .getByRole("button", { name: "Top-left corner", exact: true })
+        .press("Escape");
+    await expect(section).toHaveCount(0);
+    await expect(page.getByLabel("Card name", { exact: true })).toHaveValue(
+        "Straightened card",
+    );
+    await expect(
+        page.getByRole("button", {
+            name: "Adjust image 1 corners",
+            exact: true,
+        }),
+    ).toBeFocused();
+    await page
+        .getByRole("button", { name: "Adjust image 1 corners", exact: true })
+        .click();
+    const handle = section.getByRole("button", {
+        name: "Top-left corner",
+        exact: true,
+    });
+    await expect(handle).toBeVisible();
+    await expect(section.getByRole("status")).toHaveText(
+        "Corners detected. Adjust them if needed.",
+    );
+    await handle.scrollIntoViewIfNeeded();
+    const before = await handle.getAttribute("style");
+    const bounds = (await handle.boundingBox())!;
+    const touch = await page.context().newCDPSession(page);
+    await touch.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [
+            {
+                x: bounds.x + bounds.width / 2,
+                y: bounds.y + bounds.height / 2,
+                id: 1,
+            },
+        ],
+    });
+    await touch.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [
+            {
+                x: bounds.x + bounds.width / 2 + 14,
+                y: bounds.y + bounds.height / 2 + 10,
+                id: 1,
+            },
+        ],
+    });
+    await touch.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+    });
+    await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
+    await touch.detach();
+    await section.getByRole("button", { name: "Reset", exact: true }).click();
+    await expect(handle).toHaveAttribute("style", before!);
+    await handle.press("Shift+ArrowRight");
+    await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
+    await section.getByRole("button", { name: "Reset", exact: true }).click();
+    await expect(handle).toHaveAttribute("style", before!);
+    // Reset restores the automatically detected quadrilateral. The preview's
+    // colors and dimensions verify detection without manually placing corners.
+    await section.getByRole("button", { name: "Preview", exact: true }).click();
+    const preview = section.getByRole("img", {
+        name: "Straightened preview",
+        exact: true,
+    });
+    await expect(preview).toBeVisible();
+    await expect(preview).toBeInViewport({ ratio: 1 });
+    const previewBytes = Buffer.from(
+        await preview.evaluate(
+            (canvas: HTMLCanvasElement) =>
+                canvas.toDataURL("image/png").split(",")[1],
+        ),
+        "base64",
+    );
+    const previewSize = await expectPerspectiveColors(previewBytes);
+    expect(previewSize.width).toBeGreaterThan(250);
+    expect(previewSize.width).toBeLessThan(285);
+    expect(previewSize.height).toBeGreaterThan(175);
+    expect(previewSize.height).toBeLessThan(210);
+    await page.screenshot({
+        path: testInfo.outputPath("perspective-preview.png"),
+        animations: "disabled",
+    });
+    expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.evaluate(() => {
+        const original = HTMLCanvasElement.prototype.toBlob;
+        HTMLCanvasElement.prototype.toBlob = function (callback) {
+            HTMLCanvasElement.prototype.toBlob = original;
+            callback(null);
+        };
+    });
+    await section.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(section.getByRole("alert")).toHaveText(
+        "Couldn't prepare the adjusted image. Try a smaller selection.",
+    );
+    await page.evaluate(() => {
+        const original = HTMLCanvasElement.prototype.toBlob;
+        const taskWindow = window as typeof window & {
+            finishPerspective?: () => void;
+        };
+        HTMLCanvasElement.prototype.toBlob = function (
+            callback,
+            type,
+            quality,
+        ) {
+            HTMLCanvasElement.prototype.toBlob = original;
+            taskWindow.finishPerspective = () =>
+                original.call(this, callback, type, quality);
+        };
+    });
+    try {
+        await section
+            .getByRole("button", { name: "Apply", exact: true })
+            .click();
+        await expect(section.getByRole("status")).toHaveText(
+            "Straightening image...",
+        );
+        await expect(
+            page.getByRole("button", { name: "Cancel", exact: true }),
+        ).toBeDisabled();
+        await expect(
+            section.getByRole("button", {
+                name: "Top-left corner",
+                exact: true,
+            }),
+        ).toBeDisabled();
+        const view = await page.evaluate(() => window.history.state.fooDialog);
+        await page.goBack();
+        await expect
+            .poll(() => page.evaluate(() => window.history.state.fooDialog))
+            .toBe(view);
+        await expect(section).toBeVisible();
+    } finally {
+        await page.evaluate(() => {
+            const taskWindow = window as typeof window & {
+                finishPerspective?: () => void;
+            };
+            taskWindow.finishPerspective?.();
+            delete taskWindow.finishPerspective;
+        });
+    }
+    await expect(section).toHaveCount(0);
+    expect(
+        (await (await page.request.get("/api/cards")).json()).cards,
+    ).toHaveLength(0);
+    await page
+        .getByRole("button", { name: "Move image 1 down", exact: true })
+        .click();
+    const saving = page.waitForResponse(
+        (response) =>
+            response.url().endsWith("/api/cards") &&
+            response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Save card", exact: true }).click();
+    const { card } = await (await saving).json();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const path = `/api/cards/${card.id}`;
+    const originalOther = await (
+        await page.request.get(`${path}/images/1`)
+    ).body();
+    const originalDocument = await (
+        await page.request.get(`${path}/images/2`)
+    ).body();
+    expect(await expectPerspectiveColors(originalDocument)).toEqual(
+        previewSize,
+    );
+    await page.reload();
+    await page
+        .getByRole("button", { name: "Open Straightened card", exact: true })
+        .click();
+    async function adjustSaved() {
+        await chooseCardAction(page, "Edit card");
+        await page
+            .getByRole("button", { name: "Rotate image 2 right", exact: true })
+            .click();
+        await page
+            .getByRole("button", {
+                name: "Adjust image 2 corners",
+                exact: true,
+            })
+            .click();
+        const tool = page.getByRole("region", {
+            name: "Adjust image 2 corners",
+            exact: true,
+        });
+        await expect(
+            tool.getByRole("button", { name: "Apply", exact: true }),
+        ).toBeEnabled();
+        await tool.getByRole("button", { name: "Apply", exact: true }).click();
+        await expect(tool).toHaveCount(0);
+    }
+    await adjustSaved();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(
+        page.getByRole("dialog", { name: "Straightened card", exact: true }),
+    ).toBeVisible();
+    expect(await (await page.request.get(`${path}/images/2`)).body()).toEqual(
+        originalDocument,
+    );
+    await adjustSaved();
+    await page
+        .getByRole("button", { name: "Move image 2 up", exact: true })
+        .click();
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles(other);
+    const draftUrl = await page
+        .getByRole("img", { name: "Preview of image 1", exact: true })
+        .getAttribute("src");
+    await page.route(`**${path}`, (route) =>
+        route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "Try saving again." }),
+        }),
+    );
+    await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .click();
+    await expect(page.getByRole("alert")).toHaveText("Try saving again.");
+    await expect(
+        page.getByRole("img", { name: "Preview of image 1", exact: true }),
+    ).toHaveAttribute("src", draftUrl!);
+    expect(await (await page.request.get(`${path}/images/2`)).body()).toEqual(
+        originalDocument,
+    );
+    await page.unroute(`**${path}`);
+    await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Straightened card", exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    const editedSize = await expectPerspectiveColors(
+        await (await page.request.get(`${path}/images/1`)).body(),
+        true,
+    );
+    expect(editedSize.height).toBeGreaterThan(editedSize.width);
+    expect(await (await page.request.get(`${path}/images/2`)).body()).toEqual(
+        originalOther,
+    );
+    expect((await (await page.request.get(path)).json()).card).toMatchObject({
+        revision: 1,
+        imageCount: 3,
+    });
+    expect(errors).toEqual([]);
+    expect(externalRequests).toEqual([]);
+});
+
+test("Scanic keeps manual corners available when detection misses or fails", async ({
+    page,
+}) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await register(page.request);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    await page.getByLabel("Card name", { exact: true }).fill("No outline");
+    const originalBytes = await sharp({
+        create: {
+            width: 400,
+            height: 300,
+            channels: 3,
+            background: "#ffffff",
+        },
+    })
+        .png()
+        .toBuffer();
+    await page.getByLabel("Images (optional)", { exact: true }).setInputFiles({
+        name: "blank.png",
+        mimeType: "image/png",
+        buffer: originalBytes,
+    });
+    const section = page.getByRole("region", {
+        name: "Adjust image 1 corners",
+        exact: true,
+    });
+    for (const fail of [false, true]) {
+        if (fail) {
+            await page.evaluate(() => {
+                const original =
+                    OffscreenCanvasRenderingContext2D.prototype.getImageData;
+                OffscreenCanvasRenderingContext2D.prototype.getImageData =
+                    function () {
+                        OffscreenCanvasRenderingContext2D.prototype.getImageData =
+                            original;
+                        Reflect.set(window, "detectionReadFailed", true);
+                        throw new Error("Synthetic detection failure");
+                    };
+            });
+        }
+        await page
+            .getByRole("button", {
+                name: "Adjust image 1 corners",
+                exact: true,
+            })
+            .click();
+        await expect(section.getByRole("status")).toHaveText(
+            "Couldn't detect corners. Drag them into place.",
+        );
+        const handle = section.getByRole("button", {
+            name: "Top-left corner",
+            exact: true,
+        });
+        const before = await handle.getAttribute("style");
+        await handle.press("Shift+ArrowRight");
+        await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
+        await section
+            .getByRole("button", { name: "Preview", exact: true })
+            .click();
+        await expect(
+            section.getByRole("img", {
+                name: "Straightened preview",
+                exact: true,
+            }),
+        ).toBeVisible();
+        await section
+            .getByRole("button", {
+                name: "Cancel corner adjustment",
+                exact: true,
+            })
+            .click();
+        await expect(section).toHaveCount(0);
+        const bytes = await page
+            .getByRole("img", { name: "Preview of image 1", exact: true })
+            .evaluate(async (image: HTMLImageElement) =>
+                Array.from(
+                    new Uint8Array(
+                        await (await fetch(image.src)).arrayBuffer(),
+                    ),
+                ),
+            );
+        expect(Buffer.from(bytes)).toEqual(originalBytes);
+    }
+    expect(
+        await page.evaluate(() => Reflect.get(window, "detectionReadFailed")),
+    ).toBe(true);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(
+        (await (await page.request.get("/api/cards")).json()).cards,
+    ).toHaveLength(0);
+    expect(errors).toEqual([]);
+});
 
 test("images can be rotated before creation and while editing", async ({
     page,
