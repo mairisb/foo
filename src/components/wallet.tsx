@@ -106,7 +106,7 @@ export function Wallet({
                         No cards yet.
                     </p>
                 ) : (
-                    <ul className="grid gap-3">
+                    <ul className="grid grid-cols-1 gap-3">
                         {cards.map((card) => (
                             <li key={card.id}>
                                 <Button

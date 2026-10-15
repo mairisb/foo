@@ -12,6 +12,185 @@ import {
 } from "./helpers";
 
 test.afterAll(cleanUp);
+test("modal headers and bottom card actions stay visible while scrolling", async ({
+    page,
+}, testInfo) => {
+    await register(page.request);
+    const front = await syntheticImage();
+    const back = await syntheticImage("Back");
+    const images = [front, back, front, back, front, back];
+    const title = `Long card name ${"W".repeat(65)}`;
+    const created = await page.request.post("/api/cards", {
+        headers: { origin },
+        multipart: cardForm(title, images),
+    });
+    expect(created.status()).toBe(201);
+
+    async function checkPinnedHeader(screenshot: string, hasActions = false) {
+        const dialog = page.getByRole("dialog");
+        const header = dialog.locator('[data-slot="dialog-header"]');
+        const body = dialog.locator('[data-slot="dialog-body"]');
+        const close = dialog.getByRole("button", {
+            name: "Close dialog",
+            exact: true,
+        });
+        const footer = dialog.locator('[data-slot="dialog-footer"]');
+        await expect
+            .poll(() =>
+                dialog.locator("img").evaluateAll((elements) =>
+                    elements.every((element) => {
+                        const image = element as HTMLImageElement;
+                        return image.complete && image.naturalWidth > 0;
+                    }),
+                ),
+            )
+            .toBe(true);
+        await expect
+            .poll(() =>
+                body.evaluate(
+                    (element) => element.scrollHeight - element.clientHeight,
+                ),
+            )
+            .toBeGreaterThan(100);
+        // Wait for the opening animation to settle before measuring positions.
+        await dialog.evaluate(async (element) => {
+            await Promise.all(
+                element
+                    .getAnimations({ subtree: true })
+                    .map((animation) => animation.finished),
+            );
+        });
+        const headerTop = await header.evaluate(
+            (element) => element.getBoundingClientRect().top,
+        );
+        const closeTop = await close.evaluate(
+            (element) => element.getBoundingClientRect().top,
+        );
+        const footerTop = hasActions
+            ? await footer.evaluate(
+                  (element) => element.getBoundingClientRect().top,
+              )
+            : 0;
+        await body.evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+        });
+        await expect
+            .poll(() => body.evaluate((element) => element.scrollTop))
+            .toBeGreaterThan(100);
+        expect(
+            await header.evaluate(
+                (element) => element.getBoundingClientRect().top,
+            ),
+        ).toBeCloseTo(headerTop, 1);
+        expect(
+            await close.evaluate(
+                (element) => element.getBoundingClientRect().top,
+            ),
+        ).toBeCloseTo(closeTop, 1);
+        await expect(close).toBeInViewport();
+        await expect(close.locator("svg")).toBeVisible();
+        await expect(close).toHaveText("");
+        expect(
+            await close.evaluate(
+                (element) => element.getBoundingClientRect().height,
+            ),
+        ).toBeGreaterThanOrEqual(44);
+        if (hasActions) {
+            const actions = footer.getByRole("group", {
+                name: "Card actions",
+                exact: true,
+            });
+            const edit = actions.getByRole("button", {
+                name: "Edit card",
+                exact: true,
+            });
+            const remove = actions.getByRole("button", {
+                name: "Delete card",
+                exact: true,
+            });
+            await expect(edit).toBeInViewport();
+            await expect(remove).toBeInViewport();
+            expect(
+                await footer.evaluate(
+                    (element) => element.getBoundingClientRect().top,
+                ),
+            ).toBeCloseTo(footerTop, 1);
+            expect(
+                await edit.evaluate(
+                    (element) => element.getBoundingClientRect().top,
+                ),
+            ).toBeCloseTo(
+                await remove.evaluate(
+                    (element) => element.getBoundingClientRect().top,
+                ),
+                1,
+            );
+            const bodyBottom = await body.evaluate(
+                (element) => element.getBoundingClientRect().bottom,
+            );
+            expect(footerTop).toBeGreaterThanOrEqual(bodyBottom - 1);
+        }
+        expect(
+            await page.evaluate(() => document.documentElement.scrollWidth),
+        ).toBeLessThanOrEqual(page.viewportSize()!.width);
+        await page.screenshot({
+            path: testInfo.outputPath(screenshot),
+            fullPage: true,
+            animations: "disabled",
+        });
+    }
+
+    await page.goto("/");
+    expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    await page.getByLabel("Card name", { exact: true }).fill("Unsaved draft");
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles(images);
+    await checkPinnedHeader("sticky-add-header.png");
+    await page
+        .getByRole("button", { name: "Close dialog", exact: true })
+        .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+        page.getByRole("button", { name: "Add card", exact: true }),
+    ).toBeFocused();
+    expect(
+        (await (await page.request.get("/api/cards")).json()).cards,
+    ).toHaveLength(1);
+
+    await page
+        .getByRole("button", { name: `Open ${title}`, exact: true })
+        .click();
+    await checkPinnedHeader("sticky-card-header.png", true);
+    await page.getByRole("button", { name: "Edit card", exact: true }).click();
+    await checkPinnedHeader("sticky-edit-header.png");
+    await page
+        .getByRole("button", { name: "Close dialog", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: title, exact: true }),
+    ).toBeVisible();
+    await page
+        .getByRole("button", { name: "Delete card", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Delete card?", exact: true }),
+    ).toBeVisible();
+    await expect(
+        page.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeFocused();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(
+        page.getByRole("button", { name: "Delete card", exact: true }),
+    ).toBeFocused();
+    await page
+        .getByRole("button", { name: "Close dialog", exact: true })
+        .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+});
 test("sign in, create, read, edit, and delete cards across sessions", async ({
     page,
 }, testInfo) => {
@@ -288,6 +467,7 @@ test("sign in, create, read, edit, and delete cards across sessions", async ({
     ).toBe(true);
     await page
         .getByRole("dialog", { name: "Edit card", exact: true })
+        .locator('[data-slot="dialog-body"]')
         .evaluate((element) => {
             element.scrollTop = 0;
         });
@@ -488,9 +668,12 @@ test("images can be reordered before creation and while editing", async ({
             () => document.documentElement.scrollWidth <= window.innerWidth,
         ),
     ).toBe(true);
-    await page.getByRole("dialog").evaluate((element) => {
-        element.scrollTop = 0;
-    });
+    await page
+        .getByRole("dialog")
+        .locator('[data-slot="dialog-body"]')
+        .evaluate((element) => {
+            element.scrollTop = 0;
+        });
     await page.screenshot({
         path: testInfo.outputPath("reorder-new-images.png"),
         fullPage: true,
@@ -553,9 +736,12 @@ test("images can be reordered before creation and while editing", async ({
             () => document.documentElement.scrollWidth <= window.innerWidth,
         ),
     ).toBe(true);
-    await page.getByRole("dialog").evaluate((element) => {
-        element.scrollTop = 0;
-    });
+    await page
+        .getByRole("dialog")
+        .locator('[data-slot="dialog-body"]')
+        .evaluate((element) => {
+            element.scrollTop = 0;
+        });
     await page.screenshot({
         path: testInfo.outputPath("reorder-saved-images.png"),
         fullPage: true,
@@ -799,6 +985,7 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
     );
     await page
         .getByRole("dialog", { name: "Edit card", exact: true })
+        .locator('[data-slot="dialog-body"]')
         .evaluate((element) => {
             element.scrollTop = 0;
         });

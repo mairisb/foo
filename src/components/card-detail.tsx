@@ -129,16 +129,33 @@ export function CardDetail({
             title={card.label}
             onClose={onClose}
             closeDisabled={loadingEdit}
+            footer={
+                <div
+                    role="group"
+                    aria-label="Card actions"
+                    className="flex gap-2"
+                >
+                    <Button
+                        variant="outline"
+                        className="h-11 flex-1"
+                        disabled={loadingEdit}
+                        onClick={edit}
+                    >
+                        {loadingEdit ? "Loading..." : "Edit card"}
+                    </Button>
+                    <Button
+                        ref={deleteButton}
+                        variant="destructive"
+                        className="h-11 flex-1"
+                        disabled={loadingEdit}
+                        onClick={() => setConfirming(true)}
+                    >
+                        Delete card
+                    </Button>
+                </div>
+            }
         >
             {error && <FieldError>{error}</FieldError>}
-            <Button
-                variant="outline"
-                className="h-11 w-fit"
-                disabled={loadingEdit}
-                onClick={edit}
-            >
-                {loadingEdit ? "Loading..." : "Edit card"}
-            </Button>
             {Array.from({ length: card.imageCount }, (_, index) => (
                 <CardImage key={index} card={card} position={index + 1} />
             ))}
@@ -169,15 +186,6 @@ export function CardDetail({
                     again.
                 </FieldError>
             )}
-            <Button
-                ref={deleteButton}
-                variant="destructive"
-                className="h-11 w-fit"
-                disabled={loadingEdit}
-                onClick={() => setConfirming(true)}
-            >
-                Delete card
-            </Button>
         </Dialog>
     );
 }

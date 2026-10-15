@@ -8,6 +8,8 @@ The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutr
 
 Sharing and search are outside this iteration.
 
+Dialogs keep the title and X close button visible while their content scrolls. Card details group Edit card and Delete card in a fixed bottom bar.
+
 ## Run locally
 
 Requires Node.js 24 or a compatible supported runtime, npm, and running Docker Desktop with Linux containers.
