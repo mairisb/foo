@@ -60,10 +60,12 @@ export function editForm(
   revision: number,
   removeImages: number[] = [],
   images: Parameters<typeof cardForm>[1] = [],
+  imageOrder?: number[],
 ) {
   const form = cardForm(label, images);
   form.set("revision", String(revision));
   form.set("removeImages", JSON.stringify(removeImages));
+  if (imageOrder !== undefined) form.set("imageOrder", JSON.stringify(imageOrder));
   return form;
 }
 

@@ -2,7 +2,7 @@
 
 A mobile-friendly web wallet for your own loyalty cards.
 
-First iteration: create an account or sign in, add a card with a name and any number of optional images, and open your saved cards to view the images. Images can be opened full size. Edit a card's name and add or remove images, or delete the card after confirming.
+First iteration: create an account or sign in, add a card with a name and any number of optional images, and open your saved cards to view the images. Images can be opened full size. Edit a card's name and add, remove, or reorder images, or delete the card after confirming.
 
 The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutral theme, Tailwind CSS, and phone-friendly control sizes. Components live in src/components/ui; components.json records the base-nova preset. Base UI supplies the underlying accessibility and validation behavior. The login page opens on sign-in, with account creation available as a separate form.
 
@@ -44,7 +44,7 @@ npm test
 npm run build
 ```
 
-Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence, upload validation, existing number cards, editing and rollback, stale and concurrent edits, confirmed deletion and image cleanup, cancellation, failure and retry, and the complete card flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
+Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence and reordering, upload validation, existing number cards, editing and rollback, stale and concurrent edits, confirmed deletion and image cleanup, cancellation, failure and retry, and the complete card flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
 
 ## Code
 
@@ -60,7 +60,7 @@ Better Auth handles credentials and sessions. Parameterized SQL queries through 
 
 ## Images
 
-Each new card accepts any number of JPG, PNG, or WebP images, up to 10 MB each. Cards with no images are valid. Select several images at once or choose again to append more, preview them, and remove individual selections before saving.
+Each new card accepts any number of JPG, PNG, or WebP images, up to 10 MB each. Cards with no images are valid. Select several images at once or choose again to append more, preview them, remove individual selections, and use the up/down buttons to change their order before saving.
 
 The server streams uploads with busboy into a private temporary directory and normalizes and stores one image at a time, keeping the complete upload out of memory. Temporary files are removed when the request finishes. There is no image-count or aggregate upload-size cap. Images are decoded with a 60-million-pixel limit. sharp applies camera orientation, resizes to fit within 2000 by 2000 pixels without enlarging, removes metadata, and re-encodes as JPEG. Each stored image is limited to 3 MB.
 
@@ -72,7 +72,7 @@ Migrations are transactional and checksummed. Do not edit applied files; add a n
 
 ## Editing and deletion
 
-Open a card and choose Edit card to change its name, add images, or remove existing images. Changes apply together when you choose Save changes. Cancel or Close discards the draft. Remaining images retain their order and original stored bytes; new images are appended and use the normal upload validation. Existing numbers and barcodes are preserved.
+Open a card and choose Edit card to change its name, add or remove images, or use the up/down buttons to reorder saved and newly selected images together. Changes apply together when you choose Save changes. Cancel or Close discards the draft. Saved images keep their original stored bytes; new images use the normal upload validation. Existing numbers and barcodes are preserved.
 
 Editing loads the current card and includes its revision when saving. The server checks ownership and locks the card during the transaction. An older edit receives a conflict error instead of overwriting newer changes; close and reopen the editor to load the current version. Image URLs include the revision so the view refreshes photos after removals change their positions.
 

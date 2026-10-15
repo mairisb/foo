@@ -171,13 +171,15 @@ export function readCardEditUpload<T>(
   imageCount: number,
   save: (input: CardEditInput, images: AsyncIterable<Buffer>) => Promise<T>,
 ) {
-  return readUpload(request, { label: 320, revision: 10, removeImages: Math.max(320, imageCount * 11 + 2) }, (values, images) => {
+  const positionsLimit = Math.max(320, imageCount * 11 + 2);
+  return readUpload(request, { label: 320, revision: 10, removeImages: positionsLimit, imageOrder: positionsLimit }, (values, images) => {
     if (values.label === undefined) throw new HttpError(400, "Give your card a name.");
     if (!/^(0|[1-9]\d*)$/.test(values.revision ?? "")) throw new HttpError(400, "Invalid card version.");
     const input = cardEditInput.parse({
       label: values.label,
       revision: Number(values.revision),
       removeImages: JSON.parse(values.removeImages ?? ""),
+      ...(values.imageOrder !== undefined ? { imageOrder: JSON.parse(values.imageOrder) } : {}),
     });
     return save(input, images);
   });

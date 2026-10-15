@@ -14,6 +14,11 @@ export const cardEditInput = cardInput.extend({
   revision: z.number().int().min(0).max(2147483647),
   removeImages: z.array(z.number().int().min(1).max(2147483647))
     .refine(positions => new Set(positions).size === positions.length, "Choose each image only once."),
+  // Final destinations for retained images, listed in original position order.
+  // Newly uploaded files fill the other positions in upload order.
+  imageOrder: z.array(z.number().int().min(1).max(2147483647))
+    .refine(positions => new Set(positions).size === positions.length, "Choose each image position only once.")
+    .optional(),
 });
 export type CardEditInput = z.infer<typeof cardEditInput>;
 export type Card = CardInput & {
