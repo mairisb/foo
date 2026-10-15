@@ -117,21 +117,22 @@
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+    * {
+        @apply border-border outline-ring/50;
     }
-  body {
-    @apply relative min-h-dvh bg-background text-foreground;
-    color-scheme: light;
+    body {
+        @apply relative min-h-dvh bg-background text-foreground;
+        color-scheme: light;
     }
-  button:not(:disabled), [role="button"]:not(:disabled) {
-    cursor: pointer;
+    button:not(:disabled),
+    [role="button"]:not(:disabled) {
+        cursor: pointer;
     }
-  html {
-    @apply font-sans;
+    html {
+        @apply font-sans;
     }
 }
 
 .app-root {
-  isolation: isolate;
+    isolation: isolate;
 }

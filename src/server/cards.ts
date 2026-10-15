@@ -98,7 +98,9 @@ export async function updateCard(
             [ownerId, id],
         );
         const row = current.rows[0];
-        if (!row) throw new HttpError(404, "Card not found.");
+        if (!row) {
+            throw new HttpError(404, "Card not found.");
+        }
         if (row.revision !== input.revision) {
             throw new HttpError(
                 409,
@@ -111,8 +113,9 @@ export async function updateCard(
                 "SELECT position FROM card_images WHERE card_id=$1 AND position=ANY($2::int[])",
                 [id, input.removeImages],
             );
-            if (removed.rows.length !== input.removeImages.length)
+            if (removed.rows.length !== input.removeImages.length) {
                 throw new HttpError(400, "Image not found.");
+            }
             // Rebuild the retained sequence inside the database without copying image
             // bytes into the application or colliding with the original positions.
             await connection.query(
@@ -142,11 +145,14 @@ export async function updateCard(
                 throw new HttpError(400, "Invalid image order.");
             }
             const order: number[] = new Array(imageCount);
-            for (const [index, destination] of input.imageOrder.entries())
+            for (const [index, destination] of input.imageOrder.entries()) {
                 order[destination - 1] = index + 1;
+            }
             let nextNewImage = retainedCount + 1;
             for (let index = 0; index < order.length; index++) {
-                if (order[index] === undefined) order[index] = nextNewImage++;
+                if (order[index] === undefined) {
+                    order[index] = nextNewImage++;
+                }
             }
             if (order.some((position, index) => position !== index + 1)) {
                 // Exhaust DELETE RETURNING before reusing any positions; a join alone

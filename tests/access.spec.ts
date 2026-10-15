@@ -542,10 +542,11 @@ test("image reordering preserves bytes and rejects invalid or stale orders", asy
     const { card } = await created.json();
     const path = `/api/cards/${card.id}`;
     const original: Buffer[] = [];
-    for (const position of [1, 2, 3])
+    for (const position of [1, 2, 3]) {
         original.push(
             await (await request.get(`${path}/images/${position}`)).body(),
         );
+    }
     async function expectImages(expected: Buffer[]) {
         for (const [index, bytes] of expected.entries()) {
             expect(
@@ -671,12 +672,13 @@ test("card edits are private, atomic, and reject stale versions", async ({
         const { card } = await created.json();
         expect(card.revision).toBe(0);
         const originalImages: Buffer[] = [];
-        for (const position of [1, 2, 3])
+        for (const position of [1, 2, 3]) {
             originalImages.push(
                 await (
                     await owner.get(`/api/cards/${card.id}/images/${position}`)
                 ).body(),
             );
+        }
         const path = `/api/cards/${card.id}`;
         expect(
             (
@@ -796,10 +798,11 @@ test("card edits are private, atomic, and reject stale versions", async ({
             revision: 3,
             imageCount: 0,
         });
-        for (const position of [1, 2, 3, 4])
+        for (const position of [1, 2, 3, 4]) {
             expect(
                 (await owner.get(`${path}/images/${position}`)).status(),
             ).toBe(404);
+        }
         const competing = await Promise.all([
             owner.patch(path, {
                 multipart: editForm("First edit", 3, [], [front]),

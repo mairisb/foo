@@ -23,9 +23,12 @@ test("sign in, create, read, edit, and delete cards across sessions", async ({
             registering &&
             message.location().url.endsWith("/api/auth/sign-up/email") &&
             message.text().includes("429")
-        )
+        ) {
             return;
-        if (message.type() === "error") browserErrors.push(message.text());
+        }
+        if (message.type() === "error") {
+            browserErrors.push(message.text());
+        }
     });
     page.on("pageerror", (error) => browserErrors.push(error.message));
     const accountEmail = email();
@@ -411,7 +414,9 @@ test("images can be reordered before creation and while editing", async ({
 }, testInfo) => {
     const browserErrors: string[] = [];
     page.on("console", (message) => {
-        if (message.type() === "error") browserErrors.push(message.text());
+        if (message.type() === "error") {
+            browserErrors.push(message.text());
+        }
     });
     page.on("pageerror", (error) => browserErrors.push(error.message));
     await register(page.request);
@@ -425,7 +430,7 @@ test("images can be reordered before creation and while editing", async ({
     expect(reference.status()).toBe(201);
     const referenceId = (await reference.json()).card.id;
     const original: Buffer[] = [];
-    for (const position of [1, 2, 3])
+    for (const position of [1, 2, 3]) {
         original.push(
             await (
                 await page.request.get(
@@ -433,6 +438,7 @@ test("images can be reordered before creation and while editing", async ({
                 )
             ).body(),
         );
+    }
 
     await page.goto("/");
     await page.getByRole("button", { name: "Add card", exact: true }).click();
@@ -739,8 +745,9 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
         }
         for (const button of await page
             .getByRole("button", { name: /^Move image/ })
-            .all())
+            .all()) {
             await expect(button).toBeDisabled();
+        }
         await page.keyboard.press("Escape");
         await expect(
             page.getByRole("dialog", { name: "Edit card", exact: true }),

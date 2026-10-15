@@ -24,12 +24,12 @@ Open http://localhost:3000. `setup` creates an ignored .env with a generated ran
 
 ## Configuration
 
-| Variable | Purpose |
-| --- | --- |
-| DATABASE_URL | PostgreSQL connection string |
-| BETTER_AUTH_URL | Canonical app origin, initially http://localhost:3000 |
-| DEV_APP_ORIGIN | Optional exact local-network origin for phone access during development |
-| BETTER_AUTH_SECRET | Stable, random authentication secret |
+| Variable           | Purpose                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| DATABASE_URL       | PostgreSQL connection string                                            |
+| BETTER_AUTH_URL    | Canonical app origin, initially http://localhost:3000                   |
+| DEV_APP_ORIGIN     | Optional exact local-network origin for phone access during development |
+| BETTER_AUTH_SECRET | Stable, random authentication secret                                    |
 
 In local development, http://localhost:3000 and http://127.0.0.1:3000 both support accounts and card creation. These aliases are accepted only for a configured loopback host, using the same protocol and port. DEV_APP_ORIGIN adds one explicitly configured address for phone testing. Production accepts only the canonical origin.
 
@@ -40,11 +40,30 @@ The development server listens on the local network. To use it from a phone on t
 ```powershell
 npx playwright install chromium
 npm run typecheck
+npm run format:check
+npm run lint
 npm test
 npm run build
 ```
 
 Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence and reordering, upload validation, existing number cards, editing and rollback, stale and concurrent edits, confirmed deletion and image cleanup, cancellation, failure and retry, and the complete card flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
+
+## Formatting and linting
+
+Use four spaces for indentation. Every `if`, `else`, and loop body requires curly braces. Prettier formats source, tests, scripts, and supported configuration files; ESLint checks all JavaScript and TypeScript with the Next.js, React, and TypeScript rules. Warnings fail linting.
+
+After each code change, run:
+
+```powershell
+npm run format:changed
+npm run lint
+```
+
+`format:changed` includes staged, unstaged, and untracked files and handles route filenames containing brackets. Use `npm run format` to format the whole project, `npm run format:check` to check it, or `npm run lint:fix` to apply available lint fixes. Run Prettier after lint fixes. Generated output, the lockfile, third-party licenses, and applied SQL migrations are excluded from formatting. Migrations retain their checksums.
+
+VS Code settings enable formatting and ESLint fixes on save with the recommended Prettier and ESLint extensions. `.editorconfig` also specifies four spaces and LF line endings.
+
+The `typescript` dependency supplies the TypeScript 6 compatibility API for ESLint. The `@typescript/native` alias retains the TypeScript 7 compiler; `npm run typecheck` invokes it directly to avoid executable-name conflicts. This follows the [TypeScript side-by-side setup](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-6.0).
 
 ## Code
 

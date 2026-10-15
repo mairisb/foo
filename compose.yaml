@@ -1,19 +1,19 @@
 name: foo
 services:
-  postgres:
-    image: postgres:18-alpine
-    environment:
-      POSTGRES_USER: foo
-      POSTGRES_PASSWORD: foo_local
-      POSTGRES_DB: foo
-    ports:
-      - "127.0.0.1:15432:5432"
-    volumes:
-      - foo_postgres:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U foo -d foo"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
+    postgres:
+        image: postgres:18-alpine
+        environment:
+            POSTGRES_USER: foo
+            POSTGRES_PASSWORD: foo_local
+            POSTGRES_DB: foo
+        ports:
+            - "127.0.0.1:15432:5432"
+        volumes:
+            - foo_postgres:/var/lib/postgresql
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U foo -d foo"]
+            interval: 2s
+            timeout: 3s
+            retries: 30
 volumes:
-  foo_postgres:
+    foo_postgres:

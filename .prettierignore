@@ -1,0 +1,17 @@
+# Dependencies and generated output
+node_modules/
+.next/
+out/
+build/
+coverage/
+test-results/
+playwright-report/
+next-env.d.ts
+package-lock.json
+*.tsbuildinfo
+
+# Applied migrations are checksummed; keep their original bytes.
+migrations/
+
+# Third-party license text
+public/licenses/
