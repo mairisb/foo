@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { ArrowDown, ArrowUp } from "lucide-react";
@@ -85,6 +85,7 @@ export function CardForm({
             : [],
     );
     const imageInput = useRef<HTMLInputElement>(null);
+    const formId = useId();
     const nextImageId = useRef(0);
     const [orderMessage, setOrderMessage] = useState("");
 
@@ -198,8 +199,33 @@ export function CardForm({
             title={card ? "Edit card" : "Add card"}
             onClose={onClose}
             closeDisabled={busy}
+            footer={
+                <div className="flex justify-end gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11"
+                        disabled={busy}
+                        onClick={onClose}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        className="h-11"
+                        type="submit"
+                        form={formId}
+                        disabled={busy}
+                    >
+                        {busy
+                            ? "Saving..."
+                            : card
+                              ? "Save changes"
+                              : "Save card"}
+                    </Button>
+                </div>
+            }
         >
-            <Form onSubmit={submit} className="grid gap-5">
+            <Form id={formId} onSubmit={submit} className="grid gap-5">
                 <BaseField.Root name="label" render={<Field />}>
                     <BaseField.Label render={<FieldLabel />}>
                         Card name
@@ -319,20 +345,6 @@ export function CardForm({
                     {orderMessage}
                 </p>
                 {error && <FieldError>{error}</FieldError>}
-                {card && (
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11"
-                        disabled={busy}
-                        onClick={onClose}
-                    >
-                        Cancel
-                    </Button>
-                )}
-                <Button className="h-11" type="submit" disabled={busy}>
-                    {busy ? "Saving..." : card ? "Save changes" : "Save card"}
-                </Button>
             </Form>
         </Dialog>
     );

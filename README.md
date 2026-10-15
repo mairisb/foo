@@ -8,7 +8,7 @@ The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutr
 
 Sharing and search are outside this iteration.
 
-Dialogs keep the title and X close button visible while their content scrolls. Card details group Edit card and Delete card in a fixed bottom bar.
+Dialogs keep their title visible while content scrolls. Card details have a vertical-ellipsis menu in the header for Edit card and Delete card, with Close in the fixed footer. Creation and editing keep Cancel and Save in the footer; delete confirmation keeps Cancel and Delete there.
 
 Android and browser Back close an open card and return to the wallet. Back from editing returns to the card and discards unsaved changes; Back from creation discards the new draft. Forward can reopen the view. Saving and deletion keep their dismissal guards while pending.
 
@@ -95,7 +95,7 @@ Migrations are transactional and checksummed. Do not edit applied files; add a n
 
 ## Editing and deletion
 
-Open a card and choose Edit card to change its name, add or remove images, or use the up/down buttons to reorder saved and newly selected images together. Changes apply together when you choose Save changes. Cancel or Close discards the draft. Saved images keep their original stored bytes; new images use the normal upload validation. Existing numbers and barcodes are preserved.
+Open a card's header menu and choose Edit card to change its name, add or remove images, or use the up/down buttons to reorder saved and newly selected images together. Changes apply together when you choose Save changes. Cancel discards the draft. Saved images keep their original stored bytes; new images use the normal upload validation. Existing numbers and barcodes are preserved.
 
 Editing loads the current card and includes its revision when saving. The server checks ownership and locks the card during the transaction. An older edit receives a conflict error instead of overwriting newer changes; close and reopen the editor to load the current version. Image URLs include the revision so the view refreshes photos after removals change their positions.
 

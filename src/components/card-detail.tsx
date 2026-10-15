@@ -5,6 +5,13 @@ import { cardImageUrl, formatNames } from "@/lib/cards";
 import { Dialog } from "./dialog";
 import { FieldError } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import { EllipsisVertical } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api-client";
 
 function CardImage({ card, position }: { card: Card; position: number }) {
@@ -51,13 +58,16 @@ export function CardDetail({
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState("");
     const [loadingEdit, setLoadingEdit] = useState(false);
-    const deleteButton = useRef<HTMLButtonElement>(null);
-    const restoreDeleteFocus = useRef(false);
+    const actionsButton = useRef<HTMLButtonElement>(null);
+    const cancelDeleteButton = useRef<HTMLButtonElement>(null);
+    const restoreActionsFocus = useRef(false);
 
     useEffect(() => {
-        if (!confirming && restoreDeleteFocus.current) {
-            deleteButton.current?.focus();
-            restoreDeleteFocus.current = false;
+        if (confirming) {
+            cancelDeleteButton.current?.focus();
+        } else if (restoreActionsFocus.current) {
+            actionsButton.current?.focus();
+            restoreActionsFocus.current = false;
         }
     }, [confirming]);
 
@@ -91,35 +101,37 @@ export function CardDetail({
                 title="Delete card?"
                 onClose={onClose}
                 closeDisabled={deleting}
+                footer={
+                    <div className="flex justify-end gap-2">
+                        <Button
+                            ref={cancelDeleteButton}
+                            variant="outline"
+                            className="h-11"
+                            disabled={deleting}
+                            onClick={() => {
+                                restoreActionsFocus.current = true;
+                                setConfirming(false);
+                                setError("");
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            className="h-11"
+                            disabled={deleting}
+                            onClick={remove}
+                        >
+                            {deleting ? "Deleting..." : "Delete card"}
+                        </Button>
+                    </div>
+                }
             >
                 <p className="break-words">
                     Delete &ldquo;{card.label}&rdquo; and its images? This
                     cannot be undone.
                 </p>
                 {error && <FieldError>{error}</FieldError>}
-                <div className="flex justify-end gap-2">
-                    <Button
-                        autoFocus
-                        variant="outline"
-                        className="h-11"
-                        disabled={deleting}
-                        onClick={() => {
-                            restoreDeleteFocus.current = true;
-                            setConfirming(false);
-                            setError("");
-                        }}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        variant="destructive"
-                        className="h-11"
-                        disabled={deleting}
-                        onClick={remove}
-                    >
-                        {deleting ? "Deleting..." : "Delete card"}
-                    </Button>
-                </div>
             </Dialog>
         );
     }
@@ -129,28 +141,54 @@ export function CardDetail({
             title={card.label}
             onClose={onClose}
             closeDisabled={loadingEdit}
+            headerActions={
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        ref={actionsButton}
+                        aria-label="Card actions"
+                        disabled={loadingEdit}
+                        render={
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-11 shrink-0"
+                            />
+                        }
+                    >
+                        <EllipsisVertical aria-hidden="true" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                        align="end"
+                        className="min-w-40"
+                        finalFocus={() => actionsButton.current ?? false}
+                    >
+                        <DropdownMenuItem
+                            className="min-h-11"
+                            disabled={loadingEdit}
+                            onClick={edit}
+                        >
+                            Edit card
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="min-h-11"
+                            variant="destructive"
+                            disabled={loadingEdit}
+                            onClick={() => setConfirming(true)}
+                        >
+                            Delete card
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            }
             footer={
-                <div
-                    role="group"
-                    aria-label="Card actions"
-                    className="flex gap-2"
-                >
+                <div className="flex justify-end">
                     <Button
                         variant="outline"
-                        className="h-11 flex-1"
+                        className="h-11"
                         disabled={loadingEdit}
-                        onClick={edit}
+                        onClick={onClose}
                     >
-                        {loadingEdit ? "Loading..." : "Edit card"}
-                    </Button>
-                    <Button
-                        ref={deleteButton}
-                        variant="destructive"
-                        className="h-11 flex-1"
-                        disabled={loadingEdit}
-                        onClick={() => setConfirming(true)}
-                    >
-                        Delete card
+                        Close
                     </Button>
                 </div>
             }

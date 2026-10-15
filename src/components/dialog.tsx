@@ -1,11 +1,8 @@
 ﻿"use client";
-import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
 import { useContext, useLayoutEffect } from "react";
 import { DialogPendingContext } from "@/lib/dialog-history";
 import {
     Dialog as ShadcnDialog,
-    DialogClose,
     DialogContent,
     DialogHeader,
     DialogTitle,
@@ -13,12 +10,14 @@ import {
 
 export function Dialog({
     title,
+    headerActions,
     footer,
     children,
     onClose,
     closeDisabled = false,
 }: {
     title: string;
+    headerActions?: React.ReactNode;
     footer?: React.ReactNode;
     children: React.ReactNode;
     onClose: () => void;
@@ -48,19 +47,7 @@ export function Dialog({
                         <DialogTitle className="min-w-0 flex-1 py-3 leading-snug break-words">
                             {title}
                         </DialogTitle>
-                        <DialogClose
-                            aria-label="Close dialog"
-                            disabled={closeDisabled}
-                            render={
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="size-11 shrink-0"
-                                />
-                            }
-                        >
-                            <X aria-hidden="true" />
-                        </DialogClose>
+                        {headerActions}
                     </div>
                 </DialogHeader>
                 <div
