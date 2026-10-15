@@ -26,6 +26,16 @@ export default defineConfig({
             use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" },
         },
         {
+            name: "android",
+            testMatch: "**/wallet.spec.ts",
+            grep: /browser Back/,
+            use: {
+                ...devices["Pixel 7"],
+                defaultBrowserType: "chromium",
+                baseURL: process.env.DEV_APP_ORIGIN ?? "http://localhost:3000",
+            },
+        },
+        {
             name: "loopback",
             testMatch: "**/wallet.spec.ts",
             use: {

@@ -10,6 +10,8 @@ Sharing and search are outside this iteration.
 
 Dialogs keep the title and X close button visible while their content scrolls. Card details group Edit card and Delete card in a fixed bottom bar.
 
+Android and browser Back close an open card and return to the wallet. Back from editing returns to the card and discards unsaved changes; Back from creation discards the new draft. Forward can reopen the view. Saving and deletion keep their dismissal guards while pending.
+
 ## Run locally
 
 Requires Node.js 24 or a compatible supported runtime, npm, and running Docker Desktop with Linux containers.

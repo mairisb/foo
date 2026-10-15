@@ -12,6 +12,162 @@ import {
 } from "./helpers";
 
 test.afterAll(cleanUp);
+
+test("browser Back closes cards and keeps dialog history consistent", async ({
+    page,
+}) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+        if (message.type() === "error") {
+            errors.push(message.text());
+        }
+    });
+    await register(page.request);
+    const created = await page.request.post("/api/cards", {
+        headers: { origin },
+        multipart: cardForm("Back button card"),
+    });
+    expect(created.status()).toBe(201);
+    const { card } = await created.json();
+    // A real preceding page verifies that Back can leave the wallet once closed.
+    await page.goto("/manifest.webmanifest");
+    await page.goto("/");
+    await expect(
+        page.getByRole("heading", { name: "My cards (1)", exact: true }),
+    ).toBeVisible();
+    const walletUrl = page.url();
+    const historyLength = await page.evaluate(() => window.history.length);
+    await page.evaluate(() => {
+        document.documentElement.dataset.navigationTest = "same-document";
+    });
+    for (const method of ["back", "close", "escape"]) {
+        await page
+            .getByRole("button", { name: "Open Back button card", exact: true })
+            .click();
+        await expect(
+            page.getByRole("dialog", { name: "Back button card", exact: true }),
+        ).toBeVisible();
+        expect(await page.evaluate(() => window.history.length)).toBe(
+            historyLength + 1,
+        );
+        if (method === "back") {
+            await page.goBack();
+        } else if (method === "close") {
+            await page
+                .getByRole("button", { name: "Close dialog", exact: true })
+                .click();
+        } else {
+            await page.keyboard.press("Escape");
+        }
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(page).toHaveURL(walletUrl);
+        await expect(page.locator("html")).toHaveAttribute(
+            "data-navigation-test",
+            "same-document",
+        );
+        await expect(
+            page.getByRole("button", {
+                name: "Open Back button card",
+                exact: true,
+            }),
+        ).toBeFocused();
+    }
+    await page.goBack();
+    await expect(page).toHaveURL(/\/manifest\.webmanifest$/);
+    await page.goForward();
+    await expect(page).toHaveURL(walletUrl);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.goForward();
+    await expect(
+        page.getByRole("dialog", { name: "Back button card", exact: true }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Edit card", exact: true }).click();
+    await page
+        .getByLabel("Card name", { exact: true })
+        .fill("Discard this draft");
+    await page.goBack();
+    await expect(
+        page.getByRole("dialog", { name: "Back button card", exact: true }),
+    ).toBeVisible();
+    expect(
+        (await (await page.request.get(`/api/cards/${card.id}`)).json()).card
+            .label,
+    ).toBe("Back button card");
+    await page.goForward();
+    await expect(
+        page.getByRole("dialog", { name: "Edit card", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Card name", { exact: true })).toHaveValue(
+        "Back button card",
+    );
+    await page.getByLabel("Card name", { exact: true }).fill("Saved with Back");
+    await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Saved with Back", exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+        page.getByRole("dialog", { name: "Saved with Back", exact: true }),
+    ).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.goForward();
+    await expect(
+        page.getByRole("dialog", { name: "Saved with Back", exact: true }),
+    ).toBeVisible();
+    await page
+        .getByRole("button", { name: "Delete card", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Delete card?", exact: true }),
+    ).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect((await page.request.get(`/api/cards/${card.id}`)).status()).toBe(
+        200,
+    );
+    await page.goForward();
+    await expect(
+        page.getByRole("dialog", { name: "Saved with Back", exact: true }),
+    ).toBeVisible();
+    await page
+        .getByRole("button", { name: "Delete card", exact: true })
+        .click();
+    await page
+        .getByRole("button", { name: "Delete card", exact: true })
+        .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+        page.getByText("No cards yet.", { exact: true }),
+    ).toBeVisible();
+    await page.goForward();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+        page.getByText("No cards yet.", { exact: true }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    await page.getByLabel("Card name", { exact: true }).fill("Unsaved card");
+    await page.goBack();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(
+        (await (await page.request.get("/api/cards")).json()).cards,
+    ).toHaveLength(0);
+    await page.goForward();
+    await expect(
+        page.getByRole("dialog", { name: "Add card", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Card name", { exact: true })).toHaveValue("");
+    await page
+        .getByRole("button", { name: "Close dialog", exact: true })
+        .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(errors).toEqual([]);
+});
 test("modal headers and bottom card actions stay visible while scrolling", async ({
     page,
 }, testInfo) => {
@@ -26,8 +182,13 @@ test("modal headers and bottom card actions stay visible while scrolling", async
     });
     expect(created.status()).toBe(201);
 
-    async function checkPinnedHeader(screenshot: string, hasActions = false) {
-        const dialog = page.getByRole("dialog");
+    async function checkPinnedHeader(
+        title: string,
+        screenshot: string,
+        hasActions = false,
+    ) {
+        const dialog = page.getByRole("dialog", { name: title, exact: true });
+        await expect(dialog).toBeVisible();
         const header = dialog.locator('[data-slot="dialog-header"]');
         const body = dialog.locator('[data-slot="dialog-body"]');
         const close = dialog.getByRole("button", {
@@ -52,14 +213,6 @@ test("modal headers and bottom card actions stay visible while scrolling", async
                 ),
             )
             .toBeGreaterThan(100);
-        // Wait for the opening animation to settle before measuring positions.
-        await dialog.evaluate(async (element) => {
-            await Promise.all(
-                element
-                    .getAnimations({ subtree: true })
-                    .map((animation) => animation.finished),
-            );
-        });
         const headerTop = await header.evaluate(
             (element) => element.getBoundingClientRect().top,
         );
@@ -141,6 +294,11 @@ test("modal headers and bottom card actions stay visible while scrolling", async
     }
 
     await page.goto("/");
+    // Geometry checks measure scrolling after opening, independently of zoom.
+    await page.addStyleTag({
+        content:
+            '[data-slot="dialog-content"] { animation: none !important; transition: none !important; }',
+    });
     expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -149,7 +307,7 @@ test("modal headers and bottom card actions stay visible while scrolling", async
     await page
         .getByLabel("Images (optional)", { exact: true })
         .setInputFiles(images);
-    await checkPinnedHeader("sticky-add-header.png");
+    await checkPinnedHeader("Add card", "sticky-add-header.png");
     await page
         .getByRole("button", { name: "Close dialog", exact: true })
         .click();
@@ -164,9 +322,9 @@ test("modal headers and bottom card actions stay visible while scrolling", async
     await page
         .getByRole("button", { name: `Open ${title}`, exact: true })
         .click();
-    await checkPinnedHeader("sticky-card-header.png", true);
+    await checkPinnedHeader(title, "sticky-card-header.png", true);
     await page.getByRole("button", { name: "Edit card", exact: true }).click();
-    await checkPinnedHeader("sticky-edit-header.png");
+    await checkPinnedHeader("Edit card", "sticky-edit-header.png");
     await page
         .getByRole("button", { name: "Close dialog", exact: true })
         .click();
@@ -688,6 +846,7 @@ test("images can be reordered before creation and while editing", async ({
     const saved = await saving;
     expect(saved.status()).toBe(201);
     const { card } = await saved.json();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     async function expectImages(expected: Buffer[]) {
         for (const [index, bytes] of expected.entries()) {
             expect(
@@ -761,9 +920,9 @@ test("images can be reordered before creation and while editing", async ({
     ).toHaveAttribute("src", /\?v=1$/);
     await expectImages(original);
     await page.reload();
-    await page
-        .getByRole("button", { name: "Open Reordered images", exact: true })
-        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Reordered images", exact: true }),
+    ).toBeVisible();
     await expectImages(original);
     expect(
         (await (await page.request.get(`/api/cards/${card.id}`)).json()).card,
@@ -822,6 +981,11 @@ test("failed deletion keeps the card and allows retry", async ({
         await expect(
             page.getByRole("button", { name: "Close dialog", exact: true }),
         ).toBeDisabled();
+        const view = await page.evaluate(() => window.history.state.fooDialog);
+        await page.goBack();
+        await expect
+            .poll(() => page.evaluate(() => window.history.state.fooDialog))
+            .toBe(view);
         await page.keyboard.press("Escape");
         await expect(
             page.getByRole("dialog", { name: "Delete card?", exact: true }),
@@ -934,6 +1098,11 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
             .all()) {
             await expect(button).toBeDisabled();
         }
+        const view = await page.evaluate(() => window.history.state.fooDialog);
+        await page.goBack();
+        await expect
+            .poll(() => page.evaluate(() => window.history.state.fooDialog))
+            .toBe(view);
         await page.keyboard.press("Escape");
         await expect(
             page.getByRole("dialog", { name: "Edit card", exact: true }),
@@ -1009,6 +1178,7 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
     await page
         .getByRole("button", { name: "Close dialog", exact: true })
         .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.reload();
     await expect(
         page.getByRole("button", { name: "Open Fresh edit", exact: true }),

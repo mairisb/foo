@@ -1,6 +1,8 @@
 ﻿"use client";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { useContext, useLayoutEffect } from "react";
+import { DialogPendingContext } from "@/lib/dialog-history";
 import {
     Dialog as ShadcnDialog,
     DialogClose,
@@ -22,6 +24,12 @@ export function Dialog({
     onClose: () => void;
     closeDisabled?: boolean;
 }) {
+    const setPending = useContext(DialogPendingContext);
+    useLayoutEffect(() => {
+        setPending?.(closeDisabled);
+        return () => setPending?.(false);
+    }, [closeDisabled, setPending]);
+
     return (
         <ShadcnDialog
             open
