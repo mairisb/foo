@@ -9,6 +9,8 @@ import {
     cardForm,
     editForm,
     origin,
+    rotationImage,
+    expectImageRotation,
 } from "./helpers";
 
 test.afterAll(cleanUp);
@@ -29,6 +31,169 @@ async function dismissDialog(page: Page) {
         .getByRole("button", { name: /^(Close|Cancel)$/ })
         .click();
 }
+
+test("images can be rotated before creation and while editing", async ({
+    page,
+}, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await register(page.request);
+    const image = await rotationImage();
+    await page.goto("/");
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    await page
+        .getByLabel("Card name", { exact: true })
+        .fill("Rotation preview");
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles(image);
+    const preview = page.getByRole("img", {
+        name: "Preview of image 1",
+        exact: true,
+    });
+    await expect
+        .poll(() =>
+            preview.evaluate(
+                (element: HTMLImageElement) => element.naturalWidth,
+            ),
+        )
+        .toBe(240);
+    const originalUrl = await preview.getAttribute("src");
+    for (let index = 0; index < 4; index++) {
+        await page
+            .getByRole("button", { name: "Rotate image 1 right", exact: true })
+            .click();
+    }
+    await expect
+        .poll(() =>
+            preview.evaluate((element) => {
+                const matrix = new DOMMatrixReadOnly(
+                    getComputedStyle(element).transform,
+                );
+                return [matrix.a, matrix.b, matrix.c, matrix.d];
+            }),
+        )
+        .toEqual([1, 0, 0, 1]);
+    await page
+        .getByRole("button", { name: "Rotate image 1 left", exact: true })
+        .click();
+    await expect
+        .poll(() =>
+            preview.evaluate(
+                (element) =>
+                    element.getBoundingClientRect().height >
+                    element.getBoundingClientRect().width,
+            ),
+        )
+        .toBe(true);
+    await expect(preview).toHaveAttribute("src", originalUrl!);
+    await page
+        .getByRole("button", { name: "Rotate image 1 right", exact: true })
+        .click();
+    await page
+        .getByRole("button", { name: "Rotate image 1 right", exact: true })
+        .click();
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles(image);
+    await page
+        .getByRole("button", { name: "Move image 1 down", exact: true })
+        .click();
+    await page.screenshot({
+        path: testInfo.outputPath("rotate-upload.png"),
+        animations: "disabled",
+    });
+    expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(page.viewportSize()!.width);
+    const saving = page.waitForResponse(
+        (response) =>
+            response.request().method() === "POST" &&
+            response.url().endsWith("/api/cards"),
+    );
+    await page.getByRole("button", { name: "Save card", exact: true }).click();
+    const { card } = await (await saving).json();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const originals: Buffer[] = [];
+    for (const [index, rotation] of ([0, 90] as const).entries()) {
+        const bytes = await (
+            await page.request.get(`/api/cards/${card.id}/images/${index + 1}`)
+        ).body();
+        await expectImageRotation(bytes, rotation);
+        originals.push(bytes);
+    }
+    await page.reload();
+    await page
+        .getByRole("button", { name: "Open Rotation preview", exact: true })
+        .click();
+    async function changeDraft() {
+        await chooseCardAction(page, "Edit card");
+        await page
+            .getByRole("button", { name: "Rotate image 1 left", exact: true })
+            .click();
+        await page
+            .getByRole("button", { name: "Remove image 2", exact: true })
+            .click();
+        await page
+            .getByLabel("Images (optional)", { exact: true })
+            .setInputFiles(image);
+        await page
+            .getByRole("button", { name: "Rotate image 2 right", exact: true })
+            .click();
+        await page
+            .getByRole("button", { name: "Move image 2 up", exact: true })
+            .click();
+    }
+    await changeDraft();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(
+        page.getByRole("dialog", { name: "Rotation preview", exact: true }),
+    ).toBeVisible();
+    for (const [index, bytes] of originals.entries()) {
+        expect(
+            await (
+                await page.request.get(
+                    `/api/cards/${card.id}/images/${index + 1}`,
+                )
+            ).body(),
+        ).toEqual(bytes);
+    }
+    await changeDraft();
+    await page.screenshot({
+        path: testInfo.outputPath("rotate-edit.png"),
+        animations: "disabled",
+    });
+    await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Rotation preview", exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    for (const [index, rotation] of ([90, 270] as const).entries()) {
+        await expectImageRotation(
+            await (
+                await page.request.get(
+                    `/api/cards/${card.id}/images/${index + 1}`,
+                )
+            ).body(),
+            rotation,
+        );
+        await expect
+            .poll(() =>
+                page
+                    .getByRole("img", {
+                        name: `Image ${index + 1} of Rotation preview`,
+                        exact: true,
+                    })
+                    .evaluate(
+                        (element: HTMLImageElement) => element.naturalHeight,
+                    ),
+            )
+            .toBe(240);
+    }
+    expect(errors).toEqual([]);
+});
 
 test("browser Back closes cards and keeps dialog history consistent", async ({
     page,
@@ -1068,6 +1233,17 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
     await page
         .getByRole("button", { name: "Move image 2 up", exact: true })
         .click();
+    await page
+        .getByRole("button", { name: "Rotate image 1 right", exact: true })
+        .click();
+    await page
+        .getByRole("button", { name: "Rotate image 2 left", exact: true })
+        .click();
+    const draftTransforms = await page
+        .getByRole("img", { name: /^Preview of image/ })
+        .evaluateAll((images) =>
+            images.map((image) => getComputedStyle(image).transform),
+        );
     const reorderedPreviews = await page
         .getByRole("img", { name: /^Preview of image/ })
         .evaluateAll((images) =>
@@ -1104,7 +1280,7 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
             ).toBeDisabled();
         }
         for (const button of await page
-            .getByRole("button", { name: /^Move image/ })
+            .getByRole("button", { name: /^(Move|Rotate) image/ })
             .all()) {
             await expect(button).toBeDisabled();
         }
@@ -1136,6 +1312,13 @@ test("editing keeps drafts after failure and reloads after a conflict", async ({
                 images.map((image) => (image as HTMLImageElement).src),
             ),
     ).toEqual(reorderedPreviews);
+    expect(
+        await page
+            .getByRole("img", { name: /^Preview of image/ })
+            .evaluateAll((images) =>
+                images.map((image) => getComputedStyle(image).transform),
+            ),
+    ).toEqual(draftTransforms);
     expect(
         (await (await page.request.get(`/api/cards/${card.id}`)).json()).card,
     ).toMatchObject({ label: "Edit retry", revision: 0, imageCount: 2 });

@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { finished, pipeline } from "node:stream/promises";
 import busboy from "busboy";
-import sharp from "sharp";
 import {
     cardInput,
     cardEditInput,
@@ -14,57 +13,12 @@ import {
     maxImageBytes,
     type CardInput,
     type CardEditInput,
+    type ImageRotation,
 } from "@/lib/cards";
 import { HttpError } from "./http";
+import { prepareCardImage } from "./images";
 
-const maxStoredBytes = 3 * 1024 * 1024;
-type UploadFile = { path: string; emptyName: boolean };
-
-async function prepareImage(path: string) {
-    const source = await readFile(path);
-    if (source.length === 0) {
-        throw new HttpError(400, "Choose an image that isn't empty.");
-    }
-    try {
-        const image = sharp(source, {
-            limitInputPixels: 60_000_000,
-            failOn: "warning",
-        });
-        const metadata = await image.metadata();
-        if (
-            !metadata.format ||
-            !["jpeg", "png", "webp"].includes(metadata.format)
-        ) {
-            throw new HttpError(400, "Choose JPG, PNG, or WebP images.");
-        }
-        const data = await image
-            .rotate()
-            .resize({
-                width: 2000,
-                height: 2000,
-                fit: "inside",
-                withoutEnlargement: true,
-            })
-            .flatten({ background: "#ffffff" })
-            .jpeg({ quality: 85 })
-            .toBuffer();
-        if (data.length > maxStoredBytes) {
-            throw new HttpError(
-                413,
-                "That image is too large. Choose a smaller image.",
-            );
-        }
-        return data;
-    } catch (error) {
-        if (error instanceof HttpError) {
-            throw error;
-        }
-        throw new HttpError(
-            400,
-            "Couldn't read an image. Choose a valid JPG, PNG, or WebP image.",
-        );
-    }
-}
+type UploadFile = { path: string; emptyName: boolean; rotation: ImageRotation };
 
 async function readUpload<T>(
     request: Request,
@@ -141,16 +95,17 @@ async function readUpload<T>(
     );
     parser.on("file", (name, stream, info) => {
         stream.on("error", () => {}); // The parser and write pipeline report the failure.
+        const imageField = /^images(?::(0|90|180|270))?$/.exec(name);
         if (
             failure ||
-            name !== "images" ||
+            !imageField ||
             (info.filename !== "" && !imageMimeTypes.includes(info.mimeType))
         ) {
             stream.resume();
             fail(
                 new HttpError(
                     400,
-                    name === "images"
+                    imageField
                         ? "Choose JPG, PNG, or WebP images."
                         : "The card form has an unexpected field.",
                 ),
@@ -163,6 +118,7 @@ async function readUpload<T>(
         const file = {
             path: join(directory, randomUUID()),
             emptyName: info.filename === "",
+            rotation: Number(imageField[1] ?? 0) as ImageRotation,
         };
         files.push(file);
         const write = writing
@@ -256,7 +212,10 @@ async function readUpload<T>(
                 if (file.emptyName && (await stat(file.path)).size === 0) {
                     continue;
                 }
-                yield await prepareImage(file.path);
+                yield await prepareCardImage(
+                    await readFile(file.path),
+                    file.rotation,
+                );
             }
         }
         return await save(values, images());
@@ -297,6 +256,7 @@ export function readCardEditUpload<T>(
             revision: 10,
             removeImages: positionsLimit,
             imageOrder: positionsLimit,
+            rotateImages: Math.max(320, imageCount * 48 + 2),
         },
         (values, images) => {
             if (values.label === undefined) {
@@ -311,6 +271,9 @@ export function readCardEditUpload<T>(
                 removeImages: JSON.parse(values.removeImages ?? ""),
                 ...(values.imageOrder !== undefined
                     ? { imageOrder: JSON.parse(values.imageOrder) }
+                    : {}),
+                ...(values.rotateImages !== undefined
+                    ? { rotateImages: JSON.parse(values.rotateImages) }
                     : {}),
             });
             return save(input, images);

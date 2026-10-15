@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, RotateCcw, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,6 +16,7 @@ import {
     cardImageUrl,
     imageMimeTypes,
     maxImageBytes,
+    type ImageRotation,
 } from "@/lib/cards";
 import { api } from "@/lib/api-client";
 import { Dialog } from "./dialog";
@@ -24,13 +25,18 @@ function ImagePreview({
     file,
     src,
     position,
+    rotation,
 }: {
     file?: File;
     src?: string;
     position: number;
+    rotation: ImageRotation;
 }) {
     const imageElement = useRef<HTMLImageElement>(null);
     const [failed, setFailed] = useState(false);
+    const [sourceRatio, setSourceRatio] = useState(1);
+    const sideways = rotation === 90 || rotation === 270;
+    const aspectRatio = sideways ? 1 / sourceRatio : sourceRatio;
 
     useEffect(() => {
         if (!file || !imageElement.current) {
@@ -49,19 +55,39 @@ function ImagePreview({
         );
     }
     return (
-        <img
-            ref={imageElement}
-            src={src}
-            alt={`Preview of image ${position}`}
-            className="max-h-48 w-full rounded-lg border bg-white object-contain"
-            onError={() => setFailed(true)}
-        />
+        <div className="flex justify-center rounded-lg border bg-white">
+            <div
+                className="relative w-full"
+                style={{ aspectRatio, maxWidth: `${aspectRatio * 192}px` }}
+            >
+                <img
+                    ref={imageElement}
+                    src={src}
+                    alt={`Preview of image ${position}`}
+                    className="absolute top-1/2 left-1/2 object-contain"
+                    style={{
+                        width: sideways ? `${100 / aspectRatio}%` : "100%",
+                        height: sideways ? `${100 * aspectRatio}%` : "100%",
+                        maxWidth: "none",
+                        transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                    }}
+                    onLoad={(event) =>
+                        setSourceRatio(
+                            event.currentTarget.naturalWidth /
+                                event.currentTarget.naturalHeight,
+                        )
+                    }
+                    onError={() => setFailed(true)}
+                />
+            </div>
+        </div>
     );
 }
 
-type DraftImage =
+type DraftImage = { rotation: ImageRotation } & (
     | { kind: "saved"; id: string; position: number; src: string }
-    | { kind: "new"; id: string; file: File };
+    | { kind: "new"; id: string; file: File }
+);
 
 export function CardForm({
     card,
@@ -81,6 +107,7 @@ export function CardForm({
                   id: `saved-${index + 1}`,
                   position: index + 1,
                   src: cardImageUrl(card, index + 1),
+                  rotation: 0,
               }))
             : [],
     );
@@ -107,6 +134,23 @@ export function CardForm({
         );
     }
 
+    function rotateImage(index: number, direction: -90 | 90) {
+        setImages((current) =>
+            current.map((image, position) =>
+                position === index
+                    ? {
+                          ...image,
+                          rotation: ((image.rotation + direction + 360) %
+                              360) as ImageRotation,
+                      }
+                    : image,
+            ),
+        );
+        setOrderMessage(
+            `Image ${index + 1} rotated ${direction === 90 ? "right" : "left"} by 90 degrees.`,
+        );
+    }
+
     function chooseImages(files: File[]) {
         let message = "";
         if (files.some((file) => file.size > maxImageBytes)) {
@@ -126,6 +170,7 @@ export function CardForm({
                 kind: "new",
                 id: `new-${nextImageId.current++}`,
                 file,
+                rotation: 0,
             }));
             setImages((old) => [...old, ...added]);
         }
@@ -174,10 +219,30 @@ export function CardForm({
                         .map((image) => image.destination),
                 ),
             );
+            upload.set(
+                "rotateImages",
+                JSON.stringify(
+                    images.flatMap((image) =>
+                        image.kind === "saved" && image.rotation !== 0
+                            ? [
+                                  {
+                                      position: image.position,
+                                      rotation: image.rotation,
+                                  },
+                              ]
+                            : [],
+                    ),
+                ),
+            );
         }
         for (const image of images) {
             if (image.kind === "new") {
-                upload.append("images", image.file);
+                upload.append(
+                    image.rotation === 0
+                        ? "images"
+                        : `images:${image.rotation}`,
+                    image.file,
+                );
             }
         }
         try {
@@ -268,8 +333,8 @@ export function CardForm({
                     </Button>
                     <FieldDescription>
                         Choose one or more images. Choose again to add more. Use
-                        the arrows to change their order. JPG, PNG or WebP, up
-                        to 10 MB each.
+                        the arrows to reorder or rotate them. JPG, PNG or WebP,
+                        up to 10 MB each.
                     </FieldDescription>
                 </Field>
                 {images.length > 0 && (
@@ -293,6 +358,7 @@ export function CardForm({
                                             : undefined
                                     }
                                     position={index + 1}
+                                    rotation={image.rotation}
                                 />
                                 <div className="flex flex-wrap items-center gap-2">
                                     <Button
@@ -318,6 +384,28 @@ export function CardForm({
                                         onClick={() => moveImage(index, 1)}
                                     >
                                         <ArrowDown aria-hidden="true" />
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-11"
+                                        aria-label={`Rotate image ${index + 1} left`}
+                                        disabled={busy}
+                                        onClick={() => rotateImage(index, -90)}
+                                    >
+                                        <RotateCcw aria-hidden="true" />
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-11"
+                                        aria-label={`Rotate image ${index + 1} right`}
+                                        disabled={busy}
+                                        onClick={() => rotateImage(index, 90)}
+                                    >
+                                        <RotateCw aria-hidden="true" />
                                     </Button>
                                     <Button
                                         type="button"

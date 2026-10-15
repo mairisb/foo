@@ -7,6 +7,8 @@ import {
     syntheticImage,
     cardForm,
     editForm,
+    rotationImage,
+    expectImageRotation,
 } from "./helpers";
 import { getAppOrigins } from "../src/server/origins";
 import { maxImageBytes } from "../src/lib/cards";
@@ -17,6 +19,183 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 test.afterAll(cleanUp);
+
+test("image rotation validates angles and saves other changes atomically", async ({
+    request,
+}) => {
+    await register(request);
+    const image = await rotationImage();
+    const created = await request.post("/api/cards", {
+        headers: { origin },
+        multipart: cardForm(
+            "Rotations",
+            [0, 90, 180, 270].map((rotation) => ({
+                ...image,
+                rotation: rotation as 0 | 90 | 180 | 270,
+            })),
+        ),
+    });
+    expect(created.status()).toBe(201);
+    const { card } = await created.json();
+    const path = `/api/cards/${card.id}`;
+    const original: Buffer[] = [];
+    for (const [index, rotation] of ([0, 90, 180, 270] as const).entries()) {
+        const bytes = await (
+            await request.get(`${path}/images/${index + 1}`)
+        ).body();
+        await expectImageRotation(bytes, rotation);
+        original.push(bytes);
+    }
+    const exif = {
+        ...image,
+        name: "camera.jpg",
+        mimeType: "image/jpeg",
+        rotation: 90 as const,
+        buffer: await sharp(image.buffer)
+            .withMetadata({ orientation: 6 })
+            .jpeg()
+            .toBuffer(),
+    };
+    const oriented = await request.post("/api/cards", {
+        headers: { origin },
+        multipart: cardForm("Camera orientation", [exif]),
+    });
+    expect(oriented.status()).toBe(201);
+    await expectImageRotation(
+        await (
+            await request.get(
+                `/api/cards/${(await oriented.json()).card.id}/images/1`,
+            )
+        ).body(),
+        180,
+    );
+    for (const rotations of [
+        [{ position: 1, rotation: 45 }],
+        [{ position: 1, rotation: "90" }],
+        [
+            { position: 1, rotation: 90 },
+            { position: 1, rotation: 180 },
+        ],
+        [{ position: 5, rotation: 90 }],
+        [{ position: 0, rotation: 90 }],
+        [{ position: 1, rotation: 90, unexpected: true }],
+    ]) {
+        const form = editForm("Invalid rotation", 0);
+        form.set("rotateImages", JSON.stringify(rotations));
+        expect(
+            (
+                await request.patch(path, {
+                    headers: { origin },
+                    multipart: form,
+                })
+            ).status(),
+        ).toBe(400);
+    }
+    const removed = editForm("Removed rotation", 0, [2], [], undefined, [
+        { position: 2, rotation: 90 },
+    ]);
+    expect(
+        (
+            await request.patch(path, {
+                headers: { origin },
+                multipart: removed,
+            })
+        ).status(),
+    ).toBe(400);
+    const invalidField = cardForm("Invalid upload rotation");
+    invalidField.append(
+        "images:45",
+        new Blob([new Uint8Array(image.buffer)], { type: image.mimeType }),
+        image.name,
+    );
+    expect(
+        (
+            await request.post("/api/cards", {
+                headers: { origin },
+                multipart: invalidField,
+            })
+        ).status(),
+    ).toBe(400);
+    expect((await (await request.get("/api/cards")).json()).cards).toHaveLength(
+        2,
+    );
+    const rotations = [
+        { position: 1, rotation: 90 as const },
+        { position: 4, rotation: 90 as const },
+    ];
+    const failed = await request.patch(path, {
+        headers: { origin },
+        multipart: editForm(
+            "Roll back rotation",
+            0,
+            [2],
+            [
+                { ...image, rotation: 90 },
+                { ...image, buffer: Buffer.from("invalid") },
+            ],
+            [3, 1, 4],
+            rotations,
+        ),
+    });
+    expect(failed.status()).toBe(400);
+    expect((await (await request.get(path)).json()).card).toEqual(card);
+    for (const [index, bytes] of original.entries()) {
+        expect(
+            await (await request.get(`${path}/images/${index + 1}`)).body(),
+        ).toEqual(bytes);
+    }
+    const edited = await request.patch(path, {
+        headers: { origin },
+        multipart: editForm(
+            "Rotated and reordered",
+            0,
+            [2],
+            [{ ...image, rotation: 270 }],
+            [3, 1, 4],
+            rotations,
+        ),
+    });
+    expect(edited.status()).toBe(200);
+    const changed = (await edited.json()).card;
+    expect(changed).toMatchObject({
+        revision: 1,
+        imageCount: 4,
+        createdAt: card.createdAt,
+    });
+    const saved: Buffer[] = [];
+    for (const [index, rotation] of ([180, 270, 90, 0] as const).entries()) {
+        const bytes = await (
+            await request.get(`${path}/images/${index + 1}`)
+        ).body();
+        await expectImageRotation(bytes, rotation);
+        saved.push(bytes);
+    }
+    expect(saved[0]).toEqual(original[2]); // Unrotated retained images are not re-encoded.
+    const stale = await request.patch(path, {
+        headers: { origin },
+        multipart: editForm("Stale rotation", 0, [], [], undefined, [
+            { position: 1, rotation: 90 },
+        ]),
+    });
+    expect(stale.status()).toBe(409);
+    for (const [index, bytes] of saved.entries()) {
+        expect(
+            await (await request.get(`${path}/images/${index + 1}`)).body(),
+        ).toEqual(bytes);
+    }
+    const unchanged = await request.patch(path, {
+        headers: { origin },
+        multipart: editForm("Unchanged image rotation", 1, [], [], undefined, [
+            { position: 1, rotation: 0 },
+        ]),
+    });
+    expect(unchanged.status()).toBe(200);
+    for (const [index, bytes] of saved.entries()) {
+        expect(
+            await (await request.get(`${path}/images/${index + 1}`)).body(),
+        ).toEqual(bytes);
+    }
+});
 test("local aliases are restricted to development and the configured port", () => {
     const local = getAppOrigins("http://localhost:3000", "development", "");
     expect(local).toContain("http://localhost:3000");

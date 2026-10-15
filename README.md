@@ -83,9 +83,9 @@ Better Auth handles credentials and sessions. Parameterized SQL queries through 
 
 ## Images
 
-Each new card accepts any number of JPG, PNG, or WebP images, up to 10 MB each. Cards with no images are valid. Select several images at once or choose again to append more, preview them, remove individual selections, and use the up/down buttons to change their order before saving.
+Each new card accepts any number of JPG, PNG, or WebP images, up to 10 MB each. Cards with no images are valid. Select several images at once or choose again to append more, preview them, remove individual selections, and use the up/down buttons to change their order before saving. The left/right rotation buttons turn each image by 90 degrees and immediately update its preview. Rotation follows the image when reordered, and Cancel discards it.
 
-The server streams uploads with busboy into a private temporary directory and normalizes and stores one image at a time, keeping the complete upload out of memory. Temporary files are removed when the request finishes. There is no image-count or aggregate upload-size cap. Images are decoded with a 60-million-pixel limit. sharp applies camera orientation, resizes to fit within 2000 by 2000 pixels without enlarging, removes metadata, and re-encodes as JPEG. Each stored image is limited to 3 MB.
+The server streams uploads with busboy into a private temporary directory and normalizes and stores one image at a time, keeping the complete upload out of memory. Temporary files are removed when the request finishes. There is no image-count or aggregate upload-size cap. Images are decoded with a 60-million-pixel limit. sharp applies camera orientation, then the requested quarter-turn rotation, resizes to fit within 2000 by 2000 pixels without enlarging, removes metadata, and re-encodes as JPEG. Each stored image is limited to 3 MB.
 
 Image bytes live in PostgreSQL's card_images table and persist in the same Docker volume as the cards and accounts. Card and image writes are transactional. Images are served only to the signed-in owner through /api/cards/[id]/images/[position], with private no-store caching. Back up the database to preserve the images; there is no separate upload directory or public image URL.
 
@@ -95,7 +95,9 @@ Migrations are transactional and checksummed. Do not edit applied files; add a n
 
 ## Editing and deletion
 
-Open a card's header menu and choose Edit card to change its name, add or remove images, or use the up/down buttons to reorder saved and newly selected images together. Changes apply together when you choose Save changes. Cancel discards the draft. Saved images keep their original stored bytes; new images use the normal upload validation. Existing numbers and barcodes are preserved.
+Open a card's header menu and choose Edit card to change its name, add or remove images, rotate them left or right, or use the up/down buttons to reorder saved and newly selected images together. Changes apply together when you choose Save changes. Cancel discards the draft. Saved images keep their stored bytes unless rotated; rotating a saved image re-encodes that JPEG with the normal image limits. New images use the normal upload validation. Existing numbers and barcodes are preserved.
+
+Multipart uploads use the images field for unrotated files and images:90, images:180, or images:270 for clockwise rotation relative to camera-corrected orientation. Editing optionally includes rotateImages, a JSON array of position/rotation objects referring to original saved positions, with angles 0, 90, 180, or 270. Saved rotations run before removal and reordering in the same transaction. Duplicate, missing, or removed positions and invalid angles are rejected; a failed rotation, upload, or stale edit leaves the card unchanged.
 
 Editing loads the current card and includes its revision when saving. The server checks ownership and locks the card during the transaction. An older edit receives a conflict error instead of overwriting newer changes; close and reopen the editor to load the current version. Image URLs include the revision so the view refreshes photos after removals change their positions.
 

@@ -8,6 +8,7 @@ import type {
 } from "@/lib/cards";
 import { db } from "./db";
 import { HttpError } from "./http";
+import { prepareCardImage } from "./images";
 
 type CardRow = {
     id: string;
@@ -108,6 +109,40 @@ export async function updateCard(
             );
         }
         let imageCount = row.image_count;
+        const rotations = input.rotateImages ?? [];
+        const removedPositions = new Set(input.removeImages);
+        if (
+            rotations.some(
+                (image) =>
+                    image.position > imageCount ||
+                    removedPositions.has(image.position),
+            )
+        ) {
+            throw new HttpError(
+                400,
+                "Choose a saved image that isn't being removed.",
+            );
+        }
+        for (const image of rotations) {
+            if (image.rotation === 0) {
+                continue;
+            }
+            const saved = await connection.query<{ data: Buffer }>(
+                "SELECT data FROM card_images WHERE card_id=$1 AND position=$2",
+                [id, image.position],
+            );
+            if (!saved.rows[0]) {
+                throw new HttpError(400, "Image not found.");
+            }
+            const data = await prepareCardImage(
+                saved.rows[0].data,
+                image.rotation,
+            );
+            await connection.query(
+                "UPDATE card_images SET data=$3 WHERE card_id=$1 AND position=$2",
+                [id, image.position, data],
+            );
+        }
         if (input.removeImages.length > 0) {
             const removed = await connection.query(
                 "SELECT position FROM card_images WHERE card_id=$1 AND position=ANY($2::int[])",
