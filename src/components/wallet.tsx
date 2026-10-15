@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import type { Card } from "@/lib/cards";
@@ -22,6 +22,27 @@ export function Wallet({
     const selected = cards.find((card) => card.id === cardId) ?? null;
     const editing = mode === "edit" ? selected : null;
     const adding = mode === "add";
+    const adjustingId =
+        navigation.view.match(/:scan:((saved|new)-\d+)(:preview)?$/)?.[1] ??
+        null;
+    const previewing = navigation.view.endsWith(":preview");
+    const scannerView = adjustingId
+        ? adding
+            ? (`add:scan:${adjustingId}` as const)
+            : (`edit:${cardId}:scan:${adjustingId}` as const)
+        : null;
+    const { open: openDialog, close: closeDialog, setPending } = navigation;
+    const closeAdjustment = useCallback(() => {
+        setPending(false);
+        closeDialog();
+    }, [closeDialog, setPending]);
+    const openPreview = useCallback(() => {
+        if (!scannerView) {
+            return;
+        }
+        setPending(false);
+        openDialog(`${scannerView}:preview`);
+    }, [scannerView, openDialog, setPending]);
     const [error, setError] = useState("");
     const [signingOut, setSigningOut] = useState(false);
     const addButton = useRef<HTMLButtonElement>(null);
@@ -146,6 +167,14 @@ export function Wallet({
                 </main>
                 {adding && (
                     <CardForm
+                        adjustingId={adjustingId}
+                        previewing={previewing}
+                        onOpenPreview={openPreview}
+                        onClosePreview={closeAdjustment}
+                        onAdjustImage={(id) =>
+                            navigation.open(`add:scan:${id}`)
+                        }
+                        onCloseAdjustment={closeAdjustment}
                         onSave={save}
                         onClose={() => navigation.close()}
                     />
@@ -154,6 +183,14 @@ export function Wallet({
                     <CardForm
                         key={`${editing.id}:${editing.revision}`}
                         card={editing}
+                        adjustingId={adjustingId}
+                        previewing={previewing}
+                        onOpenPreview={openPreview}
+                        onClosePreview={closeAdjustment}
+                        onAdjustImage={(id) =>
+                            navigation.open(`edit:${editing.id}:scan:${id}`)
+                        }
+                        onCloseAdjustment={closeAdjustment}
                         onSave={saveChanges}
                         onClose={() => navigation.close()}
                     />

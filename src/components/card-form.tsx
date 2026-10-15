@@ -94,10 +94,22 @@ export function CardForm({
     card,
     onSave,
     onClose,
+    adjustingId,
+    previewing,
+    onOpenPreview,
+    onClosePreview,
+    onAdjustImage,
+    onCloseAdjustment,
 }: {
     card?: Card;
     onSave: (card: Card) => void;
     onClose: () => void;
+    adjustingId: string | null;
+    previewing: boolean;
+    onOpenPreview: () => void;
+    onClosePreview: () => void;
+    onAdjustImage: (id: string) => void;
+    onCloseAdjustment: () => void;
 }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
@@ -116,24 +128,37 @@ export function CardForm({
     const formId = useId();
     const nextImageId = useRef(0);
     const [orderMessage, setOrderMessage] = useState("");
-    const [adjustingId, setAdjustingId] = useState<string | null>(null);
+    const [scanFooter, setScanFooter] = useState<HTMLDivElement | null>(null);
+    const [scanHeader, setScanHeader] = useState<HTMLDivElement | null>(null);
     const [adjustingBusy, setAdjustingBusy] = useState(false);
     const adjustmentButton = useRef<HTMLButtonElement | null>(null);
     const restoreAdjustmentFocus = useRef(false);
     const controlsDisabled = busy || adjustingId !== null;
+    const adjustingIndex = images.findIndex(
+        (image) => image.id === adjustingId,
+    );
+    const adjustingImage = images[adjustingIndex];
 
     useEffect(() => {
-        if (adjustingId === null && restoreAdjustmentFocus.current) {
+        if (adjustingId !== null) {
+            restoreAdjustmentFocus.current = true;
+        } else if (restoreAdjustmentFocus.current) {
             adjustmentButton.current?.focus();
             restoreAdjustmentFocus.current = false;
         }
     }, [adjustingId]);
 
+    useEffect(() => {
+        if (adjustingId !== null && !adjustingImage) {
+            onCloseAdjustment();
+        }
+    }, [adjustingId, adjustingImage, onCloseAdjustment, previewing]);
+
     const cancelAdjustment = useCallback(() => {
         restoreAdjustmentFocus.current = true;
-        setAdjustingId(null);
         setAdjustingBusy(false);
-    }, []);
+        onCloseAdjustment();
+    }, [onCloseAdjustment]);
 
     const applyAdjustment = useCallback(
         (file: File) => {
@@ -148,10 +173,10 @@ export function CardForm({
                 "Image straightened. Save the card to keep your changes.",
             );
             restoreAdjustmentFocus.current = true;
-            setAdjustingId(null);
             setAdjustingBusy(false);
+            onCloseAdjustment();
         },
-        [adjustingId],
+        [adjustingId, onCloseAdjustment],
     );
 
     function moveImage(index: number, direction: -1 | 1) {
@@ -302,111 +327,124 @@ export function CardForm({
     }
     return (
         <Dialog
-            title={card ? "Edit card" : "Add card"}
-            onClose={onClose}
+            title={
+                adjustingImage
+                    ? previewing
+                        ? `Image ${adjustingIndex + 1} preview`
+                        : `Adjust image ${adjustingIndex + 1} corners`
+                    : card
+                      ? "Edit card"
+                      : "Add card"
+            }
+            onClose={
+                adjustingImage
+                    ? previewing
+                        ? onClosePreview
+                        : cancelAdjustment
+                    : onClose
+            }
             closeDisabled={busy || adjustingBusy}
+            className={
+                adjustingImage
+                    ? "h-[calc(100dvh-2rem)] sm:max-w-2xl"
+                    : undefined
+            }
+            bodyClassName={
+                adjustingImage ? "flex flex-1 overflow-hidden p-0" : undefined
+            }
+            headerActions={
+                adjustingImage && !previewing ? (
+                    <div ref={setScanHeader} />
+                ) : undefined
+            }
             footer={
-                <div className="flex justify-end gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11"
-                        disabled={busy || adjustingBusy}
-                        onClick={onClose}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        className="h-11"
-                        type="submit"
-                        form={formId}
-                        disabled={controlsDisabled}
-                    >
-                        {busy
-                            ? "Saving..."
-                            : card
-                              ? "Save changes"
-                              : "Save card"}
-                    </Button>
-                </div>
+                adjustingImage ? (
+                    <div ref={setScanFooter} />
+                ) : (
+                    <div className="flex justify-end gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="h-11"
+                            disabled={busy || adjustingBusy}
+                            onClick={onClose}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            className="h-11"
+                            type="submit"
+                            form={formId}
+                            disabled={controlsDisabled}
+                        >
+                            {busy
+                                ? "Saving..."
+                                : card
+                                  ? "Save changes"
+                                  : "Save card"}
+                        </Button>
+                    </div>
+                )
             }
         >
-            <Form id={formId} onSubmit={submit} className="grid gap-5">
-                <BaseField.Root name="label" render={<Field />}>
-                    <BaseField.Label render={<FieldLabel />}>
-                        Card name
-                    </BaseField.Label>
-                    <Input
-                        className="h-11"
-                        maxLength={80}
-                        required
-                        disabled={controlsDisabled}
-                        defaultValue={card?.label ?? ""}
-                    />
-                    <BaseField.Error render={<FieldError />} />
-                </BaseField.Root>
-                <Field>
-                    <FieldLabel htmlFor="card-images">
-                        Images (optional)
-                    </FieldLabel>
-                    <Input
-                        id="card-images"
-                        ref={imageInput}
-                        className="hidden"
-                        type="file"
-                        multiple
-                        accept={imageMimeTypes.join(",")}
-                        disabled={controlsDisabled}
-                        onChange={(event) =>
-                            chooseImages(
-                                Array.from(event.currentTarget.files ?? []),
-                            )
-                        }
-                    />
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11 w-fit"
-                        disabled={controlsDisabled}
-                        onClick={() => imageInput.current?.click()}
-                    >
-                        Add images
-                    </Button>
-                    <FieldDescription>
-                        Choose one or more images. Choose again to add more. Use
-                        the arrows to reorder or rotate them. JPG, PNG or WebP,
-                        up to 10 MB each. Use Adjust corners to straighten a
-                        photographed card.
-                    </FieldDescription>
-                </Field>
-                {images.length > 0 && (
-                    <ul className="grid gap-4">
-                        {images.map((image, index) => (
-                            <li key={image.id} className="grid gap-2">
-                                <p className="break-all text-sm text-muted-foreground">
-                                    {image.kind === "new"
-                                        ? image.file.name
-                                        : `Image ${index + 1}`}
-                                </p>
-                                {adjustingId === image.id ? (
-                                    <PerspectiveEditor
-                                        file={
-                                            image.kind === "new"
-                                                ? image.file
-                                                : undefined
-                                        }
-                                        src={
-                                            image.kind === "saved"
-                                                ? image.src
-                                                : undefined
-                                        }
-                                        rotation={image.rotation}
-                                        position={index + 1}
-                                        onApply={applyAdjustment}
-                                        onCancel={cancelAdjustment}
-                                        onBusyChange={setAdjustingBusy}
-                                    />
-                                ) : (
+            <div hidden={Boolean(adjustingImage)}>
+                <Form id={formId} onSubmit={submit} className="grid gap-5">
+                    <BaseField.Root name="label" render={<Field />}>
+                        <BaseField.Label render={<FieldLabel />}>
+                            Card name
+                        </BaseField.Label>
+                        <Input
+                            className="h-11"
+                            maxLength={80}
+                            required
+                            disabled={controlsDisabled}
+                            defaultValue={card?.label ?? ""}
+                        />
+                        <BaseField.Error render={<FieldError />} />
+                    </BaseField.Root>
+                    <Field>
+                        <FieldLabel htmlFor="card-images">
+                            Images (optional)
+                        </FieldLabel>
+                        <Input
+                            id="card-images"
+                            ref={imageInput}
+                            className="hidden"
+                            type="file"
+                            multiple
+                            accept={imageMimeTypes.join(",")}
+                            disabled={controlsDisabled}
+                            onChange={(event) =>
+                                chooseImages(
+                                    Array.from(event.currentTarget.files ?? []),
+                                )
+                            }
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="h-11 w-fit"
+                            disabled={controlsDisabled}
+                            onClick={() => imageInput.current?.click()}
+                        >
+                            Add images
+                        </Button>
+                        <FieldDescription>
+                            Choose one or more images. Choose again to add more.
+                            Use the arrows to reorder or rotate them. JPG, PNG
+                            or WebP, up to 10 MB each. Use Adjust corners to
+                            straighten a photographed card.
+                        </FieldDescription>
+                    </Field>
+                    {images.length > 0 && (
+                        <ul className="grid gap-4">
+                            {images.map((image, index) => (
+                                <li key={image.id} className="grid gap-2">
+                                    <p className="break-all text-sm text-muted-foreground">
+                                        {image.kind === "new"
+                                            ? image.file.name
+                                            : `Image ${index + 1}`}
+                                    </p>
                                     <ImagePreview
                                         file={
                                             image.kind === "new"
@@ -421,98 +459,138 @@ export function CardForm({
                                         position={index + 1}
                                         rotation={image.rotation}
                                     />
-                                )}
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-11"
-                                        aria-label={`Move image ${index + 1} up`}
-                                        disabled={
-                                            controlsDisabled || index === 0
-                                        }
-                                        onClick={() => moveImage(index, -1)}
-                                    >
-                                        <ArrowUp aria-hidden="true" />
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-11"
-                                        aria-label={`Move image ${index + 1} down`}
-                                        disabled={
-                                            controlsDisabled ||
-                                            index === images.length - 1
-                                        }
-                                        onClick={() => moveImage(index, 1)}
-                                    >
-                                        <ArrowDown aria-hidden="true" />
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-11"
-                                        aria-label={`Rotate image ${index + 1} left`}
-                                        disabled={controlsDisabled}
-                                        onClick={() => rotateImage(index, -90)}
-                                    >
-                                        <RotateCcw aria-hidden="true" />
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="size-11"
-                                        aria-label={`Rotate image ${index + 1} right`}
-                                        disabled={controlsDisabled}
-                                        onClick={() => rotateImage(index, 90)}
-                                    >
-                                        <RotateCw aria-hidden="true" />
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="h-11"
-                                        disabled={controlsDisabled}
-                                        aria-label={`Adjust image ${index + 1} corners`}
-                                        onClick={(event) => {
-                                            adjustmentButton.current =
-                                                event.currentTarget;
-                                            setAdjustingId(image.id);
-                                        }}
-                                    >
-                                        Adjust corners
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        className="h-11 w-fit"
-                                        disabled={controlsDisabled}
-                                        onClick={() => {
-                                            setImages((old) =>
-                                                old.filter(
-                                                    (current) =>
-                                                        current.id !== image.id,
-                                                ),
-                                            );
-                                            setError("");
-                                        }}
-                                    >
-                                        Remove image {index + 1}
-                                    </Button>
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-                <p role="status" className="sr-only">
-                    {orderMessage}
-                </p>
-                {error && <FieldError>{error}</FieldError>}
-            </Form>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-11"
+                                            aria-label={`Move image ${index + 1} up`}
+                                            disabled={
+                                                controlsDisabled || index === 0
+                                            }
+                                            onClick={() => moveImage(index, -1)}
+                                        >
+                                            <ArrowUp aria-hidden="true" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-11"
+                                            aria-label={`Move image ${index + 1} down`}
+                                            disabled={
+                                                controlsDisabled ||
+                                                index === images.length - 1
+                                            }
+                                            onClick={() => moveImage(index, 1)}
+                                        >
+                                            <ArrowDown aria-hidden="true" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-11"
+                                            aria-label={`Rotate image ${index + 1} left`}
+                                            disabled={controlsDisabled}
+                                            onClick={() =>
+                                                rotateImage(index, -90)
+                                            }
+                                        >
+                                            <RotateCcw aria-hidden="true" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-11"
+                                            aria-label={`Rotate image ${index + 1} right`}
+                                            disabled={controlsDisabled}
+                                            onClick={() =>
+                                                rotateImage(index, 90)
+                                            }
+                                        >
+                                            <RotateCw aria-hidden="true" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-11"
+                                            disabled={controlsDisabled}
+                                            aria-label={`Adjust image ${index + 1} corners`}
+                                            title="Adjust corners"
+                                            onClick={(event) => {
+                                                adjustmentButton.current =
+                                                    event.currentTarget;
+                                                onAdjustImage(image.id);
+                                            }}
+                                        >
+                                            <svg
+                                                aria-hidden="true"
+                                                focusable="false"
+                                                viewBox="0 -960 960 960"
+                                                fill="currentColor"
+                                                className="size-5"
+                                            >
+                                                <path d="M120-120v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm160 640v-80h80v80h-80Zm0-640v-80h80v80h-80Zm160 640v-80h80v80h-80Zm160 0v-80h80v80h-80Zm160 0v-80h80v80h-80Zm0-160v-80h80v80h-80Zm80-160h-80v-200q0-50-35-85t-85-35H440v-80h200q83 0 141.5 58.5T840-640v200Z" />
+                                            </svg>
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            className="h-11 w-fit"
+                                            disabled={controlsDisabled}
+                                            onClick={() => {
+                                                setImages((old) =>
+                                                    old.filter(
+                                                        (current) =>
+                                                            current.id !==
+                                                            image.id,
+                                                    ),
+                                                );
+                                                setError("");
+                                            }}
+                                        >
+                                            Remove image {index + 1}
+                                        </Button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    <p role="status" className="sr-only">
+                        {orderMessage}
+                    </p>
+                    {error && <FieldError>{error}</FieldError>}
+                </Form>
+            </div>
+            {adjustingImage && (
+                <PerspectiveEditor
+                    key={adjustingImage.id}
+                    file={
+                        adjustingImage.kind === "new"
+                            ? adjustingImage.file
+                            : undefined
+                    }
+                    src={
+                        adjustingImage.kind === "saved"
+                            ? adjustingImage.src
+                            : undefined
+                    }
+                    rotation={adjustingImage.rotation}
+                    position={adjustingIndex + 1}
+                    header={scanHeader}
+                    footer={scanFooter}
+                    previewing={previewing}
+                    onOpenPreview={onOpenPreview}
+                    onClosePreview={onClosePreview}
+                    onApply={applyAdjustment}
+                    onCancel={cancelAdjustment}
+                    onBusyChange={setAdjustingBusy}
+                />
+            )}
         </Dialog>
     );
 }

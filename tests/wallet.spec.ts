@@ -61,10 +61,29 @@ test("Scanic straightens document corners during upload and editing", async ({
     await page
         .getByLabel("Images (optional)", { exact: true })
         .setInputFiles([documentImage, other]);
+    const adjust = page.getByRole("button", {
+        name: "Adjust image 1 corners",
+        exact: true,
+    });
+    await expect(adjust).toHaveText("");
+    await expect(adjust.locator("svg")).toBeVisible();
+    await adjust.scrollIntoViewIfNeeded();
+    const rotationButton = page.getByRole("button", {
+        name: "Rotate image 1 right",
+        exact: true,
+    });
+    expect((await adjust.boundingBox())!.y).toBeCloseTo(
+        (await rotationButton.boundingBox())!.y,
+        1,
+    );
+    await page.screenshot({
+        path: testInfo.outputPath("image-toolbar.png"),
+        animations: "disabled",
+    });
     await page
         .getByRole("button", { name: "Adjust image 1 corners", exact: true })
         .click();
-    const section = page.getByRole("region", {
+    const section = page.getByRole("dialog", {
         name: "Adjust image 1 corners",
         exact: true,
     });
@@ -73,7 +92,9 @@ test("Scanic straightens document corners during upload and editing", async ({
     ).toBeVisible();
     await expect(
         page.getByRole("button", { name: "Save card", exact: true }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
+    await expect(page.getByLabel("Card name", { exact: true })).toBeHidden();
+    await expect(page.getByRole("dialog")).toHaveCount(1);
     // Escape exits this tool and preserves the card form and original image.
     await section
         .getByRole("button", { name: "Top-left corner", exact: true })
@@ -96,6 +117,74 @@ test("Scanic straightens document corners during upload and editing", async ({
         exact: true,
     });
     await expect(handle).toBeVisible();
+    // Browser/Android Back closes only the scanner and retains the form draft.
+    await page.goBack();
+    await expect(section).toHaveCount(0);
+    await expect(page.getByLabel("Card name", { exact: true })).toHaveValue(
+        "Straightened card",
+    );
+    await page.goForward();
+    await expect(handle).toBeVisible();
+    // Editor and actions fit the modal at both phone orientations, without a
+    // scrolling body or an introductory paragraph above the image.
+    const expectFittedEditor = async () => {
+        const body = section.locator('[data-slot="dialog-body"]');
+        const editor = body.locator('[data-slot="perspective-editor"]');
+        await expect(editor).toBeInViewport({ ratio: 1 });
+        await expect
+            .poll(async () =>
+                body.evaluate(
+                    (element) => element.scrollHeight - element.clientHeight,
+                ),
+            )
+            .toBeLessThanOrEqual(1);
+        // Sample both rectangles in one frame while the popup finishes its
+        // viewport-resize transition.
+        await expect
+            .poll(() =>
+                body.evaluate((element) => {
+                    const bodyBounds = element.getBoundingClientRect();
+                    const editorBounds = element
+                        .querySelector('[data-slot="perspective-editor"]')!
+                        .getBoundingClientRect();
+                    return Math.max(
+                        Math.abs(editorBounds.height - bodyBounds.height),
+                        Math.abs(editorBounds.width - bodyBounds.width),
+                    );
+                }),
+            )
+            .toBeLessThan(0.5);
+        await expect(
+            section.getByRole("button", { name: "Apply", exact: true }),
+        ).toBeInViewport({ ratio: 1 });
+        for (const label of ["Reset corners", "Preview"]) {
+            const button = section
+                .locator('[data-slot="dialog-header"]')
+                .getByRole("button", { name: label, exact: true });
+            await expect(button).toHaveText("");
+            await expect(button.locator("svg")).toBeVisible();
+            await expect(button).toBeInViewport({ ratio: 1 });
+        }
+        await expect(
+            body.getByText("Drag the four corners onto the document.", {
+                exact: false,
+            }),
+        ).toHaveCount(0);
+    };
+    await expectFittedEditor();
+    const originalViewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expectFittedEditor();
+    await page.screenshot({
+        path: testInfo.outputPath("scanic-landscape.png"),
+        animations: "disabled",
+    });
+    await page.setViewportSize(originalViewport);
+    await expectFittedEditor();
+    await page.screenshot({
+        path: testInfo.outputPath("scanic-dialog.png"),
+        animations: "disabled",
+    });
     await expect(section.getByRole("status")).toHaveText(
         "Corners detected. Adjust them if needed.",
     );
@@ -129,21 +218,59 @@ test("Scanic straightens document corners during upload and editing", async ({
     });
     await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
     await touch.detach();
-    await section.getByRole("button", { name: "Reset", exact: true }).click();
+    await section
+        .getByRole("button", { name: "Reset corners", exact: true })
+        .click();
     await expect(handle).toHaveAttribute("style", before!);
     await handle.press("Shift+ArrowRight");
     await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
-    await section.getByRole("button", { name: "Reset", exact: true }).click();
+    await section
+        .getByRole("button", { name: "Reset corners", exact: true })
+        .click();
     await expect(handle).toHaveAttribute("style", before!);
     // Reset restores the automatically detected quadrilateral. The preview's
     // colors and dimensions verify detection without manually placing corners.
     await section.getByRole("button", { name: "Preview", exact: true }).click();
-    const preview = section.getByRole("img", {
+    const previewDialog = page.getByRole("dialog", {
+        name: "Image 1 preview",
+        exact: true,
+    });
+    const preview = previewDialog.getByRole("img", {
         name: "Straightened preview",
         exact: true,
     });
     await expect(preview).toBeVisible();
     await expect(preview).toBeInViewport({ ratio: 1 });
+    await expect(
+        previewDialog.getByRole("heading", {
+            name: "Image 1 preview",
+            exact: true,
+        }),
+    ).toBeInViewport();
+    await expect(
+        previewDialog
+            .locator('[data-slot="dialog-footer"]')
+            .getByRole("button", { name: "Close preview", exact: true }),
+    ).toBeInViewport();
+    await expect(
+        previewDialog.getByRole("button", { name: "Apply", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+        previewDialog.getByRole("button", {
+            name: "Top-left corner",
+            exact: true,
+        }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect
+        .poll(() =>
+            previewDialog
+                .locator('[data-slot="dialog-body"]')
+                .evaluate(
+                    (element) => element.scrollHeight - element.clientHeight,
+                ),
+        )
+        .toBeLessThanOrEqual(1);
     const previewBytes = Buffer.from(
         await preview.evaluate(
             (canvas: HTMLCanvasElement) =>
@@ -163,6 +290,37 @@ test("Scanic straightens document corners during upload and editing", async ({
     expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(page.viewportSize()!.width);
+    // Preview is a history layer. Returning retains the same mounted editor
+    // and its exact selection, and Forward restores the result.
+    await page.goBack();
+    await expect(handle).toHaveAttribute("style", before!);
+    await expect(
+        section.getByRole("button", { name: "Preview", exact: true }),
+    ).toBeFocused();
+    await handle.press("Shift+ArrowRight");
+    await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
+    const changedSelection = await handle.getAttribute("style");
+    await page.goForward();
+    await expect(preview).toBeVisible();
+    expect(
+        await preview.evaluate(
+            (canvas: HTMLCanvasElement) =>
+                canvas.toDataURL("image/png").split(",")[1],
+        ),
+    ).not.toBe(previewBytes.toString("base64"));
+    await previewDialog
+        .getByRole("button", { name: "Close preview", exact: true })
+        .press("Escape");
+    await expect(handle).toHaveAttribute("style", changedSelection!);
+    await section
+        .getByRole("button", { name: "Reset corners", exact: true })
+        .click();
+    await section.getByRole("button", { name: "Preview", exact: true }).click();
+    await previewDialog
+        .getByRole("button", { name: "Close preview", exact: true })
+        .click();
+    await expect(handle).toHaveAttribute("style", before!);
+    await expectFittedEditor();
     await page.evaluate(() => {
         const original = HTMLCanvasElement.prototype.toBlob;
         HTMLCanvasElement.prototype.toBlob = function (callback) {
@@ -197,7 +355,10 @@ test("Scanic straightens document corners during upload and editing", async ({
             "Straightening image...",
         );
         await expect(
-            page.getByRole("button", { name: "Cancel", exact: true }),
+            section.getByRole("button", {
+                name: "Cancel corner adjustment",
+                exact: true,
+            }),
         ).toBeDisabled();
         await expect(
             section.getByRole("button", {
@@ -260,7 +421,7 @@ test("Scanic straightens document corners during upload and editing", async ({
                 exact: true,
             })
             .click();
-        const tool = page.getByRole("region", {
+        const tool = page.getByRole("dialog", {
             name: "Adjust image 2 corners",
             exact: true,
         });
@@ -353,7 +514,7 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
         mimeType: "image/png",
         buffer: originalBytes,
     });
-    const section = page.getByRole("region", {
+    const section = page.getByRole("dialog", {
         name: "Adjust image 1 corners",
         exact: true,
     });
@@ -391,11 +552,16 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
             .getByRole("button", { name: "Preview", exact: true })
             .click();
         await expect(
-            section.getByRole("img", {
-                name: "Straightened preview",
-                exact: true,
-            }),
+            page
+                .getByRole("dialog", { name: "Image 1 preview", exact: true })
+                .getByRole("img", {
+                    name: "Straightened preview",
+                    exact: true,
+                }),
         ).toBeVisible();
+        await page
+            .getByRole("button", { name: "Close preview", exact: true })
+            .click();
         await section
             .getByRole("button", {
                 name: "Cancel corner adjustment",
@@ -422,6 +588,23 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
         (await (await page.request.get("/api/cards")).json()).cards,
     ).toHaveLength(0);
     expect(errors).toEqual([]);
+    // Forward can reopen the empty form after cancellation; an old scanner
+    // entry for a discarded upload must return to that form without an error.
+    await page.goForward();
+    await expect(
+        page.getByRole("dialog", { name: "Add card", exact: true }),
+    ).toBeVisible();
+    await page.goForward();
+    await expect
+        .poll(() => page.evaluate(() => window.history.state.fooDialog))
+        .toBe("add");
+    await expect(
+        page.getByRole("button", {
+            name: "Adjust image 1 corners",
+            exact: true,
+        }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
 });
 
 test("images can be rotated before creation and while editing", async ({

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Eye, LoaderCircle, Undo2 } from "lucide-react";
 import type { CornerEditor, CornerPoints } from "scanic";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
@@ -11,6 +13,11 @@ export function PerspectiveEditor({
     src,
     rotation,
     position,
+    header,
+    footer,
+    previewing,
+    onOpenPreview,
+    onClosePreview,
     onApply,
     onCancel,
     onBusyChange,
@@ -19,12 +26,20 @@ export function PerspectiveEditor({
     src?: string;
     rotation: ImageRotation;
     position: number;
+    header: HTMLDivElement | null;
+    footer: HTMLDivElement | null;
+    previewing: boolean;
+    onOpenPreview: () => void;
+    onClosePreview: () => void;
     onApply: (file: File) => void;
     onCancel: () => void;
     onBusyChange: (busy: boolean) => void;
 }) {
     const host = useRef<HTMLDivElement>(null);
     const preview = useRef<HTMLCanvasElement>(null);
+    const previewButton = useRef<HTMLButtonElement>(null);
+    const closePreviewButton = useRef<HTMLButtonElement>(null);
+    const showingPreview = useRef(previewing);
     const editor = useRef<CornerEditor | null>(null);
     const extract = useRef<((apply: boolean) => Promise<void>) | null>(null);
     const [ready, setReady] = useState(false);
@@ -36,10 +51,21 @@ export function PerspectiveEditor({
     );
 
     useEffect(() => {
-        if (hasPreview) {
-            preview.current?.scrollIntoView({ block: "nearest" });
+        if (previewing) {
+            closePreviewButton.current?.focus();
+        } else if (showingPreview.current) {
+            previewButton.current?.focus();
         }
-    }, [hasPreview]);
+        if (previewing || header) {
+            showingPreview.current = previewing;
+        }
+    }, [previewing, header, footer]);
+
+    useEffect(() => {
+        if (previewing && ready && !hasPreview) {
+            void extract.current?.(false);
+        }
+    }, [previewing, ready, hasPreview]);
 
     useEffect(() => {
         let disposed = false;
@@ -182,6 +208,7 @@ export function PerspectiveEditor({
                             .getContext("2d")
                             ?.drawImage(canvas, 0, 0);
                         setHasPreview(true);
+                        onOpenPreview();
                     }
                 } catch (failure) {
                     if (!disposed) {
@@ -215,9 +242,11 @@ export function PerspectiveEditor({
             });
             editor.current = instance;
             setReady(true);
-            host.current
-                .querySelector<HTMLButtonElement>(".scanic-handle")
-                ?.focus();
+            if (!showingPreview.current) {
+                host.current
+                    .querySelector<HTMLButtonElement>(".scanic-handle")
+                    ?.focus();
+            }
         }
         void initialize().catch((failure: Error) => {
             if (!disposed) {
@@ -236,18 +265,26 @@ export function PerspectiveEditor({
                 URL.revokeObjectURL(sourceUrl);
             }
         };
-    }, [file, src, rotation, onApply, onCancel, onBusyChange]);
+    }, [file, src, rotation, onApply, onCancel, onBusyChange, onOpenPreview]);
 
     return (
         <section
-            aria-label={`Adjust image ${position} corners`}
-            className="grid min-w-0 gap-3"
+            aria-label={
+                previewing
+                    ? `Image ${position} preview`
+                    : `Adjust image ${position} corners`
+            }
+            className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
             onKeyDownCapture={(event) => {
                 if (event.key === "Escape") {
                     event.preventDefault();
                     event.stopPropagation();
                     if (!busy) {
-                        onCancel();
+                        if (previewing) {
+                            onClosePreview();
+                        } else {
+                            onCancel();
+                        }
                     }
                 } else if (
                     event.key === "Enter" &&
@@ -259,68 +296,118 @@ export function PerspectiveEditor({
                 }
             }}
         >
-            <p className="text-sm">
-                Drag the four corners onto the document. You can also focus a
-                corner and use the arrow keys.
+            <p role="status" className="sr-only">
+                {busy ? "Straightening image..." : detectionStatus}
             </p>
-            {!busy && !error && <p role="status">{detectionStatus}</p>}
-            <fieldset disabled={busy} className="grid min-w-0 gap-3">
+            <fieldset
+                disabled={busy}
+                inert={previewing}
+                aria-hidden={previewing}
+                className={`absolute inset-0 min-h-0 min-w-0 ${previewing ? "invisible" : ""}`}
+            >
                 <div
                     ref={host}
                     data-slot="perspective-editor"
-                    className="relative h-80 min-w-0 rounded-lg border bg-muted"
+                    className="relative h-full w-full min-w-0 bg-muted"
                 />
-                <div className="flex flex-wrap gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11"
-                        disabled={!ready}
-                        onClick={() => editor.current?.reset()}
-                    >
-                        Reset
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11"
-                        disabled={!ready}
-                        onClick={() => {
-                            void extract.current?.(false);
-                        }}
-                    >
-                        Preview
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11"
-                        onClick={onCancel}
-                        aria-label="Cancel corner adjustment"
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        type="button"
-                        className="h-11"
-                        disabled={!ready}
-                        onClick={() => {
-                            void extract.current?.(true);
-                        }}
-                    >
-                        Apply
-                    </Button>
-                </div>
             </fieldset>
-            {busy && <p role="status">Straightening image...</p>}
-            {error && <FieldError>{error}</FieldError>}
-            <canvas
-                ref={preview}
-                role="img"
-                aria-label="Straightened preview"
-                hidden={!hasPreview}
-                className="mx-auto max-h-48 max-w-full rounded-lg border object-contain"
-            />
+            {header &&
+                !previewing &&
+                createPortal(
+                    <fieldset disabled={busy} className="flex gap-2">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-11"
+                            aria-label="Reset corners"
+                            title="Reset corners"
+                            disabled={!ready}
+                            onClick={() => editor.current?.reset()}
+                        >
+                            <Undo2 aria-hidden="true" />
+                        </Button>
+                        <Button
+                            ref={previewButton}
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-11"
+                            aria-label="Preview"
+                            title="Preview"
+                            disabled={!ready}
+                            onClick={() => {
+                                void extract.current?.(false);
+                            }}
+                        >
+                            <Eye aria-hidden="true" />
+                        </Button>
+                    </fieldset>,
+                    header,
+                )}
+            {footer &&
+                createPortal(
+                    <fieldset
+                        disabled={busy}
+                        className="flex justify-end gap-2"
+                    >
+                        {previewing ? (
+                            <Button
+                                ref={closePreviewButton}
+                                type="button"
+                                variant="outline"
+                                className="h-11"
+                                aria-label="Close preview"
+                                onClick={onClosePreview}
+                            >
+                                Close
+                            </Button>
+                        ) : (
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-11"
+                                    onClick={onCancel}
+                                    aria-label="Cancel corner adjustment"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="h-11"
+                                    disabled={!ready}
+                                    onClick={() => {
+                                        void extract.current?.(true);
+                                    }}
+                                >
+                                    Apply
+                                </Button>
+                            </>
+                        )}
+                    </fieldset>,
+                    footer,
+                )}
+            {(!ready || busy) && !error && (
+                <LoaderCircle
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-3 left-3 size-5 animate-spin"
+                />
+            )}
+            {error && (
+                <FieldError className="absolute inset-x-4 top-4 rounded-lg bg-popover p-3">
+                    {error}
+                </FieldError>
+            )}
+            <div hidden={!previewing} className="absolute inset-0 p-4">
+                <canvas
+                    ref={preview}
+                    role="img"
+                    aria-label="Straightened preview"
+                    hidden={!hasPreview}
+                    className="h-full w-full object-contain"
+                />
+            </div>
         </section>
     );
 }

@@ -7,3 +7,9 @@ License copy: material-symbols-Apache-2.0.txt
 
 Changes: white icon fill, centered on a black rounded rectangle.
 The SVG is also rendered into the favicon and PNG app/phone icons.
+
+Material Symbols rounded-corner icon by Google, licensed under Apache License 2.0.
+Icon source: https://raw.githubusercontent.com/google/material-design-icons/master/symbols/web/rounded_corner/materialsymbolsoutlined/rounded_corner_24px.svg
+Reference: https://www.shadcn.io/icon/material-symbols-rounded-corner
+Changes: inherits the current text color and is sized for the image toolbar.
+License copy: material-symbols-Apache-2.0.txt

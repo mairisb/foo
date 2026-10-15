@@ -2,7 +2,13 @@
 
 import { createContext, useState, useSyncExternalStore } from "react";
 
-type DialogView = "" | "add" | `card:${string}` | `edit:${string}`;
+type DialogView =
+    | ""
+    | "add"
+    | `card:${string}`
+    | `edit:${string}`
+    | `add:scan:${string}`
+    | `edit:${string}:scan:${string}`;
 
 export const DialogPendingContext = createContext<
     ((pending: boolean) => void) | null
@@ -12,7 +18,11 @@ function readView(): DialogView {
     const view = window.history.state?.fooDialog;
     if (
         typeof view === "string" &&
-        (view === "add" || /^(card|edit):[\da-f-]{36}$/i.test(view))
+        (view === "add" ||
+            /^(card|edit):[\da-f-]{36}$/i.test(view) ||
+            /^(add|edit:[\da-f-]{36}):scan:(new-\d+|saved-[1-9]\d*)(:preview)?$/i.test(
+                view,
+            ))
     ) {
         return view as DialogView;
     }
