@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useContext, useLayoutEffect } from "react";
+import { useContext, useLayoutEffect, useRef } from "react";
 import { DialogPendingContext } from "@/lib/dialog-history";
 import {
     Dialog as ShadcnDialog,
@@ -24,6 +24,7 @@ export function Dialog({
     closeDisabled?: boolean;
 }) {
     const setPending = useContext(DialogPendingContext);
+    const content = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         setPending?.(closeDisabled);
         return () => setPending?.(false);
@@ -39,6 +40,8 @@ export function Dialog({
             }}
         >
             <DialogContent
+                ref={content}
+                initialFocus={content}
                 showCloseButton={false}
                 className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0"
             >
