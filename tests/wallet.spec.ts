@@ -1,8 +1,8 @@
 ﻿import { test, expect } from "@playwright/test";
-import { cleanUp, email, password, retrySeconds, syntheticImage, register, cardForm, origin } from "./helpers";
+import { cleanUp, email, password, retrySeconds, syntheticImage, register, cardForm, editForm, origin } from "./helpers";
 
 test.afterAll(cleanUp);
-test("sign in, create, read, and delete cards across sessions", async ({
+test("sign in, create, read, edit, and delete cards across sessions", async ({
   page,
 }, testInfo) => {
   const browserErrors: string[] = [];
@@ -102,7 +102,8 @@ test("sign in, create, read, and delete cards across sessions", async ({
   await page.screenshot({ path: testInfo.outputPath("add-images.png"), fullPage: true, animations: "disabled" });
   const savedImages = page.waitForResponse(response => response.url().endsWith("/api/cards") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Save card", exact: true }).click();
-  expect((await (await savedImages).json()).card.imageCount).toBe(4);
+  const gymCard = (await (await savedImages).json()).card;
+  expect(gymCard.imageCount).toBe(4);
   await expect(page.getByRole("button", { name: "Open Gym membership" })).toBeVisible();
   await page.reload();
   await page.screenshot({
@@ -160,18 +161,51 @@ test("sign in, create, read, and delete cards across sessions", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Open Gym membership" }).click();
   await expect.poll(() => page.getByRole("img", { name: "Image 4 of Gym membership" }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Edit card", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Edit card", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Card name", { exact: true })).toHaveValue("Gym membership");
+  await expect(page.getByRole("img", { name: /^Preview of image/ })).toHaveCount(4);
+  await page.getByLabel("Card name", { exact: true }).fill("Discarded title");
+  await page.getByRole("button", { name: "Remove image 2", exact: true }).click();
+  await page.getByLabel("Images (optional)", { exact: true }).setInputFiles(extra);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Gym membership", exact: true })).toBeVisible();
+  expect((await (await page.request.get(`/api/cards/${gymCard.id}`)).json()).card).toMatchObject({ label: "Gym membership", imageCount: 4, revision: 0 });
+  await page.getByRole("button", { name: "Edit card", exact: true }).click();
+  await page.getByLabel("Card name", { exact: true }).fill("");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByLabel("Card name", { exact: true })).toHaveAttribute("aria-invalid", "true");
+  const editedName = "Gym membership updated";
+  await page.getByLabel("Card name", { exact: true }).fill(editedName);
+  await page.getByRole("button", { name: "Remove image 2", exact: true }).click();
+  await page.getByLabel("Images (optional)", { exact: true }).setInputFiles([extra, back]);
+  await expect(page.getByRole("img", { name: /^Preview of image/ })).toHaveCount(5);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("dialog", { name: "Edit card", exact: true }).evaluate(element => { element.scrollTop = 0; });
+  await page.screenshot({ path: testInfo.outputPath("edit-card.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: editedName, exact: true })).toBeVisible();
+  const changedImage = page.getByRole("img", { name: `Image 2 of ${editedName}`, exact: true });
+  await expect(changedImage).toHaveAttribute("src", /\?v=1$/);
+  await expect.poll(() => changedImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await page.screenshot({ path: testInfo.outputPath("edited-card.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  await expect(page.getByRole("button", { name: `Open ${editedName}`, exact: true })).toContainText("5 images");
+  await page.reload();
+  await page.getByRole("button", { name: `Open ${editedName}`, exact: true }).click();
+  await expect.poll(() => page.getByRole("img", { name: `Image 5 of ${editedName}` }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Delete card", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Delete card?", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath("delete-confirmation.png"), fullPage: true, animations: "disabled" });
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Gym membership", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: editedName, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete card", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Delete card", exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "My cards (3)", exact: true })).toBeVisible();
-  const names = ["Gym membership", "Daily coffee", "Weekly groceries"];
+  const names = [editedName, "Daily coffee", "Weekly groceries"];
   for (const [index, name] of names.entries()) {
     await page.getByRole("button", { name: `Open ${name}`, exact: true }).click();
     await page.getByRole("button", { name: "Delete card", exact: true }).click();
@@ -187,7 +221,7 @@ test("sign in, create, read, and delete cards across sessions", async ({
   await expect(page.getByRole("heading", { name: "My cards (0)", exact: true })).toBeVisible();
   await expect(page.getByText("No cards yet.", { exact: true })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /share|edit|search/i }),
+    page.getByRole("button", { name: /share|search/i }),
   ).toHaveCount(0);
   expect(browserErrors).toEqual([]);
 });
@@ -238,4 +272,68 @@ test("failed deletion keeps the card and allows retry", async ({ page }, testInf
   await expect(page.getByRole("button", { name: "Open Retry card", exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.getByText("No cards yet.", { exact: true })).toBeVisible();
+});
+
+test("editing keeps drafts after failure and reloads after a conflict", async ({ page }, testInfo) => {
+  await register(page.request);
+  const front = await syntheticImage();
+  const back = await syntheticImage("Back");
+  const extra = await syntheticImage("Extra");
+  const created = await page.request.post("/api/cards", { headers: { origin }, multipart: cardForm("Edit retry", [front, back]) });
+  expect(created.status()).toBe(201);
+  const { card } = await created.json();
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open Edit retry", exact: true }).click();
+  await page.getByRole("button", { name: "Edit card", exact: true }).click();
+  await page.getByLabel("Card name", { exact: true }).fill("Saved after retry");
+  await page.getByRole("button", { name: "Remove image 1", exact: true }).click();
+  await page.getByLabel("Images (optional)", { exact: true }).setInputFiles(extra);
+  let release!: () => void;
+  let received!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const pending = new Promise<void>(resolve => { received = resolve; });
+  const path = `**/api/cards/${card.id}`;
+  await page.route(path, async route => {
+    received();
+    await gate;
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Couldn't save changes. Try again." }) });
+  });
+  try {
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await pending;
+    for (const name of ["Saving...", "Cancel", "Close dialog", "Add images"]) {
+      await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
+    }
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Edit card", exact: true })).toBeVisible();
+  } finally {
+    release();
+  }
+  await expect(page.getByRole("alert")).toHaveText("Couldn't save changes. Try again.");
+  await expect(page.getByLabel("Card name", { exact: true })).toHaveValue("Saved after retry");
+  await expect(page.getByRole("img", { name: /^Preview of image/ })).toHaveCount(2);
+  expect((await (await page.request.get(`/api/cards/${card.id}`)).json()).card).toMatchObject({ label: "Edit retry", revision: 0, imageCount: 2 });
+  await page.unroute(path);
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Saved after retry", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit card", exact: true }).click();
+  await page.getByLabel("Card name", { exact: true }).fill("Older draft");
+  const elsewhere = await page.request.patch(`/api/cards/${card.id}`, {
+    headers: { origin }, multipart: editForm("Changed elsewhere", 1),
+  });
+  expect(elsewhere.status()).toBe(200);
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("This card changed. Close and reopen the editor before saving.");
+  await expect(page.getByLabel("Card name", { exact: true })).toHaveValue("Older draft");
+  await page.getByRole("dialog", { name: "Edit card", exact: true }).evaluate(element => { element.scrollTop = 0; });
+  await page.screenshot({ path: testInfo.outputPath("edit-conflict.png"), fullPage: true, animations: "disabled" });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Edit card", exact: true }).click();
+  await expect(page.getByLabel("Card name", { exact: true })).toHaveValue("Changed elsewhere");
+  await page.getByLabel("Card name", { exact: true }).fill("Fresh edit");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Fresh edit", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Open Fresh edit", exact: true })).toContainText("2 images");
 });

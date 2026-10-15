@@ -18,6 +18,7 @@ export function Wallet({
   const [cards, setCards] = useState(initialCards);
   const [selected, setSelected] = useState<Card | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Card | null>(null);
   const [error, setError] = useState("");
   const [signingOut, setSigningOut] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -38,6 +39,16 @@ export function Wallet({
     restoreAddFocus.current = true;
     setCards(old => old.filter(card => card.id !== id));
     setSelected(null);
+  }
+  function edit(card: Card) {
+    setCards(old => old.map(current => current.id === card.id ? card : current));
+    setSelected(card);
+    setEditing(card);
+  }
+  function saveChanges(card: Card) {
+    setCards(old => old.map(current => current.id === card.id ? card : current));
+    setSelected(card);
+    setEditing(null);
   }
   async function signOut() {
     setSigningOut(true);
@@ -94,8 +105,9 @@ export function Wallet({
         )}
       </main>
       {adding && <CardForm onSave={save} onClose={() => setAdding(false)} />}
-      {selected && (
-        <CardDetail card={selected} onClose={() => setSelected(null)} onDelete={remove} />
+      {editing && <CardForm key={`${editing.id}:${editing.revision}`} card={editing} onSave={saveChanges} onClose={() => setEditing(null)} />}
+      {selected && !editing && (
+        <CardDetail key={`${selected.id}:${selected.revision}`} card={selected} onClose={() => setSelected(null)} onDelete={remove} onEdit={edit} />
       )}
     </div>
   );

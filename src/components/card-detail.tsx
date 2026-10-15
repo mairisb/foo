@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useEffect, useRef, useState } from "react";
 import type { Card } from "@/lib/cards";
-import { formatNames } from "@/lib/cards";
+import { cardImageUrl, formatNames } from "@/lib/cards";
 import { Dialog } from "./dialog";
 import { FieldError } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { api } from "@/lib/api-client";
 
 function CardImage({ card, position }: { card: Card; position: number }) {
   const [failed, setFailed] = useState(false);
-  const url = `/api/cards/${card.id}/images/${position}`;
+  const url = cardImageUrl(card, position);
   if (failed) return <FieldError>Couldn't load image {position}. Close this card and try again.</FieldError>;
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`Open image ${position} full size`}>
@@ -27,15 +27,18 @@ export function CardDetail({
   card,
   onClose,
   onDelete,
+  onEdit,
 }: {
   card: Card;
   onClose: () => void;
   onDelete: (id: string) => void;
+  onEdit: (card: Card) => void;
 }) {
   const [barcodeFailed, setBarcodeFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [loadingEdit, setLoadingEdit] = useState(false);
   const deleteButton = useRef<HTMLButtonElement>(null);
   const restoreDeleteFocus = useRef(false);
 
@@ -55,6 +58,18 @@ export function CardDetail({
     } catch (error) {
       setError((error as Error).message);
       setDeleting(false);
+    }
+  }
+
+  async function edit() {
+    setLoadingEdit(true);
+    setError("");
+    try {
+      const result = await api<{ card: Card }>(`/api/cards/${card.id}`);
+      onEdit(result.card);
+    } catch (error) {
+      setError((error as Error).message);
+      setLoadingEdit(false);
     }
   }
 
@@ -81,7 +96,11 @@ export function CardDetail({
   }
 
   return (
-    <Dialog title={card.label} onClose={onClose}>
+    <Dialog title={card.label} onClose={onClose} closeDisabled={loadingEdit}>
+      {error && <FieldError>{error}</FieldError>}
+      <Button variant="outline" className="h-11 w-fit" disabled={loadingEdit} onClick={edit}>
+        {loadingEdit ? "Loading..." : "Edit card"}
+      </Button>
       {Array.from({ length: card.imageCount }, (_, index) => (
         <CardImage key={index} card={card} position={index + 1} />
       ))}
@@ -109,7 +128,7 @@ export function CardDetail({
           Couldn't load the barcode. Close this card and try again.
         </FieldError>
       )}
-      <Button ref={deleteButton} variant="destructive" className="h-11 w-fit" onClick={() => setConfirming(true)}>
+      <Button ref={deleteButton} variant="destructive" className="h-11 w-fit" disabled={loadingEdit} onClick={() => setConfirming(true)}>
         Delete card
       </Button>
     </Dialog>

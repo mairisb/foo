@@ -1,5 +1,5 @@
 ﻿import { test, expect } from "@playwright/test";
-import { cleanUp, origin, register, sampleCard, syntheticImage, cardForm } from "./helpers";
+import { cleanUp, origin, register, sampleCard, syntheticImage, cardForm, editForm } from "./helpers";
 import { getAppOrigins } from "../src/server/origins";
 import { maxImageBytes } from "../src/lib/cards";
 import sharp from "sharp";
@@ -101,7 +101,7 @@ test("only the owner can read and delete their cards and images", async ({
       (
         await owner.patch(`/api/cards/${card.id}`, { data: sampleCard })
       ).status(),
-    ).toBe(405);
+    ).toBe(415);
     expect((await other.delete(`/api/cards/${card.id}`)).status()).toBe(404);
     expect((await anonymous.delete(`/api/cards/${card.id}`)).status()).toBe(401);
     for (const blockedOrigin of ["https://untrusted.example", ""]) {
@@ -264,10 +264,93 @@ test("existing number cards remain readable and can be deleted", async ({ reques
     expect((await response.json()).card).toMatchObject({ imageCount: 0, cardNumber: "001234567890", barcodeFormat: "code128" });
     const barcode = await request.get(`/api/cards/${legacyId}/barcode`);
     expect(barcode.status()).toBe(200);
-    expect(await barcode.text()).toContain("<svg");
+    const originalBarcode = await barcode.text();
+    expect(originalBarcode).toContain("<svg");
+    const edited = await request.patch(`/api/cards/${legacyId}`, {
+      headers: { origin }, multipart: editForm("Renamed legacy card", 0, [], [await syntheticImage()]),
+    });
+    expect(edited.status()).toBe(200);
+    expect((await edited.json()).card).toMatchObject({ label: "Renamed legacy card", revision: 1, imageCount: 1, cardNumber: "001234567890", barcodeFormat: "code128" });
+    expect(await (await request.get(`/api/cards/${legacyId}/barcode`)).text()).toBe(originalBarcode);
     expect((await request.delete(`/api/cards/${legacyId}`, { headers: { origin } })).status()).toBe(200);
     expect((await request.get(`/api/cards/${legacyId}/barcode`)).status()).toBe(404);
   } finally {
     await pool.end();
+  }
+});
+
+test("card edits are private, atomic, and reject stale versions", async ({ playwright }) => {
+  const owner = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { origin } });
+  const other = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { origin } });
+  const anonymous = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { origin } });
+  const temporaryBefore = new Set(await readdir(tmpdir()));
+  try {
+    await register(owner);
+    await register(other);
+    const front = await syntheticImage();
+    const back = await syntheticImage("Back");
+    const extra = await syntheticImage("Extra");
+    const created = await owner.post("/api/cards", { multipart: cardForm("Original title", [front, back, extra]) });
+    expect(created.status()).toBe(201);
+    const { card } = await created.json();
+    expect(card.revision).toBe(0);
+    const originalImages: Buffer[] = [];
+    for (const position of [1, 2, 3]) originalImages.push(await (await owner.get(`/api/cards/${card.id}/images/${position}`)).body());
+    const path = `/api/cards/${card.id}`;
+    expect((await other.patch(path, { multipart: editForm("Intruder", 0, [1]) })).status()).toBe(404);
+    expect((await anonymous.patch(path, { multipart: editForm("Anonymous", 0, [1]) })).status()).toBe(401);
+    for (const blockedOrigin of ["https://untrusted.example", ""]) {
+      expect((await owner.patch(path, { headers: { origin: blockedOrigin }, multipart: editForm("Blocked", 0, [1]) })).status()).toBe(403);
+    }
+    expect((await owner.patch("/api/cards/not-a-uuid", { multipart: editForm("Invalid", 0) })).status()).toBe(400);
+    expect((await owner.patch(`/api/cards/${randomUUID()}`, { multipart: editForm("Missing", 0) })).status()).toBe(404);
+    for (const form of [editForm("", 0), editForm("Invalid removal", 0, [4]), editForm("Repeated removal", 0, [1, 1]), editForm("Negative version", -1)]) {
+      expect((await owner.patch(path, { multipart: form })).status()).toBe(400);
+    }
+    expect((await (await owner.get(path)).json()).card).toEqual(card);
+    const renamed = await owner.patch(path, { multipart: editForm("Renamed only", 0) });
+    expect(renamed.status()).toBe(200);
+    expect((await renamed.json()).card).toMatchObject({ label: "Renamed only", revision: 1, imageCount: 3, createdAt: card.createdAt });
+    for (const position of [1, 2, 3]) {
+      expect(await (await owner.get(`${path}/images/${position}`)).body()).toEqual(originalImages[position - 1]);
+    }
+    const invalid = { ...extra, buffer: Buffer.from("not an image") };
+    const failed = await owner.patch(path, { multipart: editForm("Must roll back", 1, [1, 2], [front, invalid]) });
+    expect(failed.status()).toBe(400);
+    expect((await (await owner.get(path)).json()).card).toMatchObject({ label: "Renamed only", revision: 1, imageCount: 3 });
+    for (const position of [1, 2, 3]) {
+      expect(await (await owner.get(`${path}/images/${position}`)).body()).toEqual(originalImages[position - 1]);
+    }
+    const updated = await owner.patch(path, { multipart: editForm("Updated card", 1, [2], [back, front]) });
+    expect(updated.status()).toBe(200);
+    const changed = (await updated.json()).card;
+    expect(changed).toMatchObject({ label: "Updated card", revision: 2, imageCount: 4, createdAt: card.createdAt });
+    expect(updated.headers()["cache-control"]).toContain("no-store");
+    const expected = [originalImages[0], originalImages[2], originalImages[1], originalImages[0]];
+    for (let index = 0; index < expected.length; index++) {
+      expect(await (await owner.get(`${path}/images/${index + 1}`)).body()).toEqual(expected[index]);
+    }
+    expect((await owner.patch(path, { multipart: editForm("Stale edit", 1, [1]) })).status()).toBe(409);
+    expect((await (await owner.get(path)).json()).card).toEqual(changed);
+    const cleared = await owner.patch(path, { multipart: editForm("No photos", 2, [1, 2, 3, 4]) });
+    expect(cleared.status()).toBe(200);
+    expect((await cleared.json()).card).toMatchObject({ revision: 3, imageCount: 0 });
+    for (const position of [1, 2, 3, 4]) expect((await owner.get(`${path}/images/${position}`)).status()).toBe(404);
+    const competing = await Promise.all([
+      owner.patch(path, { multipart: editForm("First edit", 3, [], [front]) }),
+      owner.patch(path, { multipart: editForm("Second edit", 3, [], [back]) }),
+    ]);
+    expect(competing.map(response => response.status()).sort()).toEqual([200, 409]);
+    const winner = competing.find(response => response.status() === 200)!;
+    expect((await (await owner.get(path)).json()).card).toEqual((await winner.json()).card);
+    expect((await (await owner.get(path)).json()).card).toMatchObject({ revision: 4, imageCount: 1 });
+    expect((await other.get(`${path}/images/1`)).status()).toBe(404);
+    expect((await anonymous.get(`${path}/images/1`)).status()).toBe(401);
+    const temporaryAfter = (await readdir(tmpdir())).filter(name => name.startsWith("foo-upload-") && !temporaryBefore.has(name));
+    expect(temporaryAfter).toEqual([]);
+  } finally {
+    await owner.dispose();
+    await other.dispose();
+    await anonymous.dispose();
   }
 });

@@ -1,7 +1,8 @@
 ﻿import "server-only";
 import { randomUUID } from "node:crypto";
-import type { Card, CardInput, BarcodeFormat } from "@/lib/cards";
+import type { Card, CardInput, CardEditInput, BarcodeFormat } from "@/lib/cards";
 import { db } from "./db";
+import { HttpError } from "./http";
 
 type CardRow = {
   id: string;
@@ -10,18 +11,20 @@ type CardRow = {
   barcode_format: BarcodeFormat | null;
   image_count: number;
   created_at: Date;
+  revision: number;
 };
 const toCard = (row: CardRow): Card => ({
   id: row.id,
   label: row.label,
   imageCount: row.image_count,
+  revision: row.revision,
   ...(row.card_number !== null && row.barcode_format !== null
     ? { cardNumber: row.card_number, barcodeFormat: row.barcode_format }
     : {}),
   createdAt: row.created_at.toISOString(),
 });
 
-const cardColumns = `c.id, c.label, c.card_number, c.barcode_format, c.created_at,
+const cardColumns = `c.id, c.label, c.card_number, c.barcode_format, c.created_at, c.revision,
   (SELECT count(*)::int FROM card_images i WHERE i.card_id=c.id) AS image_count`;
 
 export async function listCards(ownerId: string) {
@@ -64,6 +67,60 @@ export async function createCard(ownerId: string, input: CardInput, images: Asyn
     }
     await connection.query("COMMIT");
     return toCard({ ...row, image_count: imageCount });
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function updateCard(ownerId: string, id: string, input: CardEditInput, images: AsyncIterable<Buffer>) {
+  const connection = await db.connect();
+  try {
+    await connection.query("BEGIN");
+    const current = await connection.query<CardRow>(
+      `SELECT ${cardColumns} FROM cards c WHERE c.owner_id=$1 AND c.id=$2 FOR UPDATE OF c`,
+      [ownerId, id],
+    );
+    const row = current.rows[0];
+    if (!row) throw new HttpError(404, "Card not found.");
+    if (row.revision !== input.revision) {
+      throw new HttpError(409, "This card changed. Close and reopen the editor before saving.");
+    }
+    let imageCount = row.image_count;
+    if (input.removeImages.length > 0) {
+      const removed = await connection.query(
+        "SELECT position FROM card_images WHERE card_id=$1 AND position=ANY($2::int[])",
+        [id, input.removeImages],
+      );
+      if (removed.rows.length !== input.removeImages.length) throw new HttpError(400, "Image not found.");
+      // Rebuild the retained sequence inside the database without copying image
+      // bytes into the application or colliding with the original positions.
+      await connection.query(
+        `WITH previous AS (
+          DELETE FROM card_images WHERE card_id=$1 RETURNING position, data
+        )
+        INSERT INTO card_images (card_id,position,data)
+        SELECT $1, row_number() OVER (ORDER BY position)::int, data
+        FROM previous WHERE NOT (position=ANY($2::int[]))`,
+        [id, input.removeImages],
+      );
+      imageCount -= input.removeImages.length;
+    }
+    for await (const image of images) {
+      imageCount++;
+      await connection.query(
+        "INSERT INTO card_images (card_id,position,data) VALUES ($1,$2,$3)",
+        [id, imageCount, image],
+      );
+    }
+    const result = await connection.query<CardRow>(
+      "UPDATE cards SET label=$3, revision=revision+1 WHERE owner_id=$1 AND id=$2 RETURNING *",
+      [ownerId, id, input.label],
+    );
+    await connection.query("COMMIT");
+    return toCard({ ...result.rows[0], image_count: imageCount });
   } catch (error) {
     await connection.query("ROLLBACK");
     throw error;

@@ -55,6 +55,18 @@ export function cardForm(label: string, images: Array<{ name: string; mimeType: 
   for (const image of images) form.append("images", new Blob([new Uint8Array(image.buffer)], { type: image.mimeType }), image.name);
   return form;
 }
+export function editForm(
+  label: string,
+  revision: number,
+  removeImages: number[] = [],
+  images: Parameters<typeof cardForm>[1] = [],
+) {
+  const form = cardForm(label, images);
+  form.set("revision", String(revision));
+  form.set("removeImages", JSON.stringify(removeImages));
+  return form;
+}
+
 export async function cleanUp() {
   const cleanupPool = new Pool({
     connectionString: process.env.DATABASE_URL,

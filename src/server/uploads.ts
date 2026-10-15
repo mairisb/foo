@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { finished, pipeline } from "node:stream/promises";
 import busboy from "busboy";
 import sharp from "sharp";
-import { cardInput, imageMimeTypes, maxImageBytes, type CardInput } from "@/lib/cards";
+import { cardInput, cardEditInput, imageMimeTypes, maxImageBytes, type CardInput, type CardEditInput } from "@/lib/cards";
 import { HttpError } from "./http";
 
 const maxStoredBytes = 3 * 1024 * 1024;
@@ -38,9 +38,10 @@ async function prepareImage(path: string) {
   }
 }
 
-export async function readCardUpload<T>(
+async function readUpload<T>(
   request: Request,
-  save: (input: CardInput, images: AsyncIterable<Buffer>) => Promise<T>,
+  fieldLimits: Record<string, number>,
+  save: (values: Record<string, string>, images: AsyncIterable<Buffer>) => Promise<T>,
 ) {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
@@ -51,7 +52,11 @@ export async function readCardUpload<T>(
   try {
     parser = busboy({
       headers: { "content-type": contentType },
-      limits: { fileSize: maxImageBytes + 1, fieldSize: 320, fields: 1 },
+      limits: {
+        fileSize: maxImageBytes + 1,
+        fieldSize: Math.max(...Object.values(fieldLimits)),
+        fields: Object.keys(fieldLimits).length,
+      },
     });
   } catch {
     throw new HttpError(400, "Couldn't read the card form. Please try again.");
@@ -64,17 +69,18 @@ export async function readCardUpload<T>(
   const writes: Promise<void>[] = [];
   const pendingWrites = new Set<Promise<void>>();
   let writing = Promise.resolve();
-  let label: string | undefined;
+  const values: Record<string, string> = Object.create(null);
   let failure: unknown;
   function fail(error: Error) {
     failure ??= error;
   }
   parser.on("field", (name, value, info) => {
-    if (name !== "label" || info.nameTruncated || info.valueTruncated || label !== undefined) {
+    if (!Object.hasOwn(fieldLimits, name) || info.nameTruncated || info.valueTruncated ||
+      Object.hasOwn(values, name) || Buffer.byteLength(value, "utf8") > fieldLimits[name]) {
       fail(new HttpError(400, "The card form has an invalid or repeated field."));
       return;
     }
-    label = value;
+    values[name] = value;
   });
   parser.on("fieldsLimit", () => fail(new HttpError(400, "The card form has an unexpected or repeated field.")));
   parser.on("file", (name, stream, info) => {
@@ -133,15 +139,13 @@ export async function readCardUpload<T>(
       if (error instanceof HttpError) throw error;
       throw new HttpError(400, "Couldn't read the card form. Please try again.");
     }
-    if (label === undefined) throw new HttpError(400, "Give your card a name.");
-    const input = cardInput.parse({ label });
     async function* images() {
       for (const file of files) {
         if (file.emptyName && (await stat(file.path)).size === 0) continue;
         yield await prepareImage(file.path);
       }
     }
-    return await save(input, images());
+    return await save(values, images());
   } finally {
     reader.releaseLock();
     await Promise.allSettled(writes);
@@ -150,4 +154,31 @@ export async function readCardUpload<T>(
     for (const file of files) await rm(file.path, { force: true });
     await rmdir(directory);
   }
+}
+
+export function readCardUpload<T>(
+  request: Request,
+  save: (input: CardInput, images: AsyncIterable<Buffer>) => Promise<T>,
+) {
+  return readUpload(request, { label: 320 }, (values, images) => {
+    if (values.label === undefined) throw new HttpError(400, "Give your card a name.");
+    return save(cardInput.parse({ label: values.label }), images);
+  });
+}
+
+export function readCardEditUpload<T>(
+  request: Request,
+  imageCount: number,
+  save: (input: CardEditInput, images: AsyncIterable<Buffer>) => Promise<T>,
+) {
+  return readUpload(request, { label: 320, revision: 10, removeImages: Math.max(320, imageCount * 11 + 2) }, (values, images) => {
+    if (values.label === undefined) throw new HttpError(400, "Give your card a name.");
+    if (!/^(0|[1-9]\d*)$/.test(values.revision ?? "")) throw new HttpError(400, "Invalid card version.");
+    const input = cardEditInput.parse({
+      label: values.label,
+      revision: Number(values.revision),
+      removeImages: JSON.parse(values.removeImages ?? ""),
+    });
+    return save(input, images);
+  });
 }

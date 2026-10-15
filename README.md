@@ -2,11 +2,11 @@
 
 A mobile-friendly web wallet for your own loyalty cards.
 
-First iteration: create an account or sign in, add a card with a name and any number of optional images, and open your saved cards to view the images. Images can be opened full size. Delete a card from its detail view after confirming; this permanently removes the card and its images.
+First iteration: create an account or sign in, add a card with a name and any number of optional images, and open your saved cards to view the images. Images can be opened full size. Edit a card's name and add or remove images, or delete the card after confirming.
 
 The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutral theme, Tailwind CSS, and phone-friendly control sizes. Components live in src/components/ui; components.json records the base-nova preset. Base UI supplies the underlying accessibility and validation behavior. The login page opens on sign-in, with account creation available as a separate form.
 
-Sharing, search, and editing are outside this iteration.
+Sharing and search are outside this iteration.
 
 ## Run locally
 
@@ -44,7 +44,7 @@ npm test
 npm run build
 ```
 
-Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence, upload validation, existing number cards, confirmed deletion and image cleanup, cancellation, failure and retry, and the complete card flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
+Tests use synthetic accounts, cards, and images, and clean up only the accounts they create. They cover account isolation, image persistence, upload validation, existing number cards, editing and rollback, stale and concurrent edits, confirmed deletion and image cleanup, cancellation, failure and retry, and the complete card flow on desktop and a 390px phone viewport. Browser checks also detect console errors and exercise hydration with simulated browser-theme attributes. Screenshots and failure traces are saved in the ignored test-results folder.
 
 ## Code
 
@@ -68,7 +68,15 @@ Image bytes live in PostgreSQL's card_images table and persist in the same Docke
 
 Existing number-based cards and their barcode display remain readable. New cards do not ask for a number or barcode format. HEIC and other formats are not accepted in this iteration.
 
-Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, the third adds image storage, and the fourth removes the two-image restriction while preserving existing images and their order.
+Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, the third adds image storage, the fourth removes the two-image restriction, and the fifth adds card revisions for safe editing.
+
+## Editing and deletion
+
+Open a card and choose Edit card to change its name, add images, or remove existing images. Changes apply together when you choose Save changes. Cancel or Close discards the draft. Remaining images retain their order and original stored bytes; new images are appended and use the normal upload validation. Existing numbers and barcodes are preserved.
+
+Editing loads the current card and includes its revision when saving. The server checks ownership and locks the card during the transaction. An older edit receives a conflict error instead of overwriting newer changes; close and reopen the editor to load the current version. Image URLs include the revision so the view refreshes photos after removals change their positions.
+
+Delete card requires confirmation and permanently removes the card and all its images. There is no undo.
 
 ## Icons
 

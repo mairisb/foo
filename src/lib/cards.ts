@@ -10,14 +10,23 @@ export const cardInput = z
   })
   .strict();
 export type CardInput = z.infer<typeof cardInput>;
+export const cardEditInput = cardInput.extend({
+  revision: z.number().int().min(0).max(2147483647),
+  removeImages: z.array(z.number().int().min(1).max(2147483647))
+    .refine(positions => new Set(positions).size === positions.length, "Choose each image only once."),
+});
+export type CardEditInput = z.infer<typeof cardEditInput>;
 export type Card = CardInput & {
   id: string;
   createdAt: string;
+  revision: number;
   imageCount: number;
   // Only older cards have these values. New cards use images.
   cardNumber?: string;
   barcodeFormat?: BarcodeFormat;
 };
+export const cardImageUrl = (card: Card, position: number) =>
+  `/api/cards/${card.id}/images/${position}?v=${card.revision}`;
 export const formatNames: Record<BarcodeFormat, string> = {
   code128: "Code 128",
   ean13: "EAN-13",
