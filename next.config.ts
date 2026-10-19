@@ -4,6 +4,11 @@ import { getAppOrigins } from "./src/server/origins";
 const nextConfig: NextConfig = {
     agentRules: false,
     poweredByHeader: false,
+    outputFileTracingIncludes: {
+        "/barcode-engine.wasm": [
+            "./node_modules/zxing-wasm/dist/full/zxing_full.wasm",
+        ],
+    },
     allowedDevOrigins: getAppOrigins().map(
         (origin) => new URL(origin).hostname,
     ),

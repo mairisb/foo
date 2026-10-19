@@ -9,6 +9,7 @@ import type {
 import { db } from "./db";
 import { HttpError } from "./http";
 import { prepareCardImage } from "./images";
+import type { CardCode } from "@/lib/card-codes";
 
 type CardRow = {
     id: string;
@@ -18,19 +19,21 @@ type CardRow = {
     image_count: number;
     created_at: Date;
     revision: number;
+    codes: CardCode[];
 };
 const toCard = (row: CardRow): Card => ({
     id: row.id,
     label: row.label,
     imageCount: row.image_count,
     revision: row.revision,
+    codes: row.codes,
     ...(row.card_number !== null && row.barcode_format !== null
         ? { cardNumber: row.card_number, barcodeFormat: row.barcode_format }
         : {}),
     createdAt: row.created_at.toISOString(),
 });
 
-const cardColumns = `c.id, c.label, c.card_number, c.barcode_format, c.created_at, c.revision,
+const cardColumns = `c.id, c.label, c.card_number, c.barcode_format, c.created_at, c.revision, c.codes,
   (SELECT count(*)::int FROM card_images i WHERE i.card_id=c.id) AS image_count`;
 
 export async function listCards(ownerId: string) {
@@ -63,8 +66,13 @@ export async function createCard(
     try {
         await connection.query("BEGIN");
         const result = await connection.query<CardRow>(
-            "INSERT INTO cards (id,owner_id,label) VALUES ($1,$2,$3) RETURNING *",
-            [randomUUID(), ownerId, input.label],
+            "INSERT INTO cards (id,owner_id,label,codes) VALUES ($1,$2,$3,$4::jsonb) RETURNING *",
+            [
+                randomUUID(),
+                ownerId,
+                input.label,
+                JSON.stringify(input.codes ?? []),
+            ],
         );
         const row = result.rows[0];
         let imageCount = 0;
@@ -207,8 +215,13 @@ export async function updateCard(
             }
         }
         const result = await connection.query<CardRow>(
-            "UPDATE cards SET label=$3, revision=revision+1 WHERE owner_id=$1 AND id=$2 RETURNING *",
-            [ownerId, id, input.label],
+            "UPDATE cards SET label=$3, codes=$4::jsonb, revision=revision+1 WHERE owner_id=$1 AND id=$2 RETURNING *",
+            [
+                ownerId,
+                id,
+                input.label,
+                JSON.stringify(input.codes ?? row.codes),
+            ],
         );
         await connection.query("COMMIT");
         return toCard({ ...result.rows[0], image_count: imageCount });

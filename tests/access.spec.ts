@@ -20,6 +20,163 @@ import { tmpdir } from "node:os";
 
 test.afterAll(cleanUp);
 
+test("extracted codes validate, remain private, and save atomically with images", async ({
+    request,
+    playwright,
+}) => {
+    await register(request);
+    const code = {
+        format: "QRCode",
+        text: "Synthetic only",
+        bytes: Buffer.from("Synthetic only").toString("base64"),
+        gs1: false,
+    };
+    for (const codes of [
+        null,
+        [{ ...code, format: "unsupported" }],
+        [{ ...code, bytes: "not base64!" }],
+        [{ ...code, text: "x".repeat(8193) }],
+        [{ ...code, gs1: "yes" }],
+        [code, code],
+        [{ ...code, unknown: true }],
+        Array.from({ length: 65 }, (_, index) => ({
+            ...code,
+            bytes: Buffer.from(`code-${index}`).toString("base64"),
+        })),
+    ]) {
+        const form = cardForm("Invalid codes");
+        form.set("codes", JSON.stringify(codes));
+        expect(
+            (
+                await request.post("/api/cards", {
+                    headers: { origin },
+                    multipart: form,
+                })
+            ).status(),
+        ).toBe(400);
+    }
+    const malformed = cardForm("Malformed");
+    malformed.set("codes", "{");
+    expect(
+        (
+            await request.post("/api/cards", {
+                headers: { origin },
+                multipart: malformed,
+            })
+        ).status(),
+    ).toBe(400);
+    expect((await (await request.get("/api/cards")).json()).cards).toHaveLength(
+        0,
+    );
+    const image = await syntheticImage();
+    const form = cardForm("Codes", [image]);
+    form.set("codes", JSON.stringify([code]));
+    const created = await request.post("/api/cards", {
+        headers: { origin },
+        multipart: form,
+    });
+    expect(created.status()).toBe(201);
+    const { card } = await created.json();
+    expect(card.codes).toEqual([code]);
+    const path = `/api/cards/${card.id}`;
+    const bytes = await (await request.get(`${path}/images/1`)).body();
+    const other = await playwright.request.newContext({ baseURL: origin });
+    const anonymous = await playwright.request.newContext({ baseURL: origin });
+    try {
+        await register(other);
+        expect((await other.get(path)).status()).toBe(404);
+        expect((await anonymous.get(path)).status()).toBe(401);
+        const foreign = editForm("Foreign", 0);
+        foreign.set("codes", "[]");
+        expect(
+            (
+                await other.patch(path, {
+                    headers: { origin },
+                    multipart: foreign,
+                })
+            ).status(),
+        ).toBe(404);
+        const unauthorized = editForm("Anonymous", 0);
+        unauthorized.set("codes", "[]");
+        expect(
+            (
+                await anonymous.patch(path, {
+                    headers: { origin },
+                    multipart: unauthorized,
+                })
+            ).status(),
+        ).toBe(401);
+        expect(
+            (
+                await request.patch(path, {
+                    headers: { origin: "https://example.invalid" },
+                    multipart: foreign,
+                })
+            ).status(),
+        ).toBe(403);
+        expect((await (await other.get("/api/cards")).json()).cards).toEqual(
+            [],
+        );
+        const failed = editForm(
+            "Rollback",
+            0,
+            [],
+            [{ ...image, buffer: Buffer.from("invalid image") }],
+        );
+        failed.set("codes", "[]");
+        expect(
+            (
+                await request.patch(path, {
+                    headers: { origin },
+                    multipart: failed,
+                })
+            ).status(),
+        ).toBe(400);
+        expect((await (await request.get(path)).json()).card).toEqual(card);
+        expect(await (await request.get(`${path}/images/1`)).body()).toEqual(
+            bytes,
+        );
+        // Clients that omit the new optional field must retain existing codes.
+        const preserved = await request.patch(path, {
+            headers: { origin },
+            multipart: editForm("Renamed", 0),
+        });
+        expect(preserved.status()).toBe(200);
+        expect((await preserved.json()).card.codes).toEqual([code]);
+        const stale = editForm("Stale", 0);
+        stale.set("codes", "[]");
+        expect(
+            (
+                await request.patch(path, {
+                    headers: { origin },
+                    multipart: stale,
+                })
+            ).status(),
+        ).toBe(409);
+        expect((await (await request.get(path)).json()).card.codes).toEqual([
+            code,
+        ]);
+        const clear = editForm("Codes cleared", 1);
+        clear.set("codes", "[]");
+        const cleared = await request.patch(path, {
+            headers: { origin },
+            multipart: clear,
+        });
+        expect(cleared.status()).toBe(200);
+        expect((await cleared.json()).card).toMatchObject({
+            codes: [],
+            revision: 2,
+            imageCount: 1,
+        });
+        expect(await (await request.get(`${path}/images/1`)).body()).toEqual(
+            bytes,
+        );
+    } finally {
+        await other.dispose();
+        await anonymous.dispose();
+    }
+});
+
 test("image rotation validates angles and saves other changes atomically", async ({
     request,
 }) => {

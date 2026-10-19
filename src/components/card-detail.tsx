@@ -13,6 +13,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api-client";
+import { CardCodes } from "./card-codes";
 
 function CardImage({ card, position }: { card: Card; position: number }) {
     const [failed, setFailed] = useState(false);
@@ -194,6 +195,7 @@ export function CardDetail({
             }
         >
             {error && <FieldError>{error}</FieldError>}
+            <CardCodes codes={card.codes ?? []} />
             {Array.from({ length: card.imageCount }, (_, index) => (
                 <CardImage key={index} card={card} position={index + 1} />
             ))}

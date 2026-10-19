@@ -1,5 +1,7 @@
 ﻿import { z } from "zod";
 
+import { cardCodes } from "./card-codes";
+
 export const barcodeFormats = ["code128", "ean13", "qrcode"] as const;
 export type BarcodeFormat = (typeof barcodeFormats)[number];
 export const maxImageBytes = 10 * 1024 * 1024;
@@ -14,6 +16,7 @@ export type ImageRotation = z.infer<typeof imageRotation>;
 export const cardInput = z
     .object({
         label: z.string().trim().min(1, "Give your card a name.").max(80),
+        codes: cardCodes.optional(),
     })
     .strict();
 export type CardInput = z.infer<typeof cardInput>;

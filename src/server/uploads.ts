@@ -235,12 +235,24 @@ export function readCardUpload<T>(
     request: Request,
     save: (input: CardInput, images: AsyncIterable<Buffer>) => Promise<T>,
 ) {
-    return readUpload(request, { label: 320 }, (values, images) => {
-        if (values.label === undefined) {
-            throw new HttpError(400, "Give your card a name.");
-        }
-        return save(cardInput.parse({ label: values.label }), images);
-    });
+    return readUpload(
+        request,
+        { label: 320, codes: 4 * 1024 * 1024 },
+        (values, images) => {
+            if (values.label === undefined) {
+                throw new HttpError(400, "Give your card a name.");
+            }
+            return save(
+                cardInput.parse({
+                    label: values.label,
+                    ...(values.codes !== undefined
+                        ? { codes: JSON.parse(values.codes) }
+                        : {}),
+                }),
+                images,
+            );
+        },
+    );
 }
 
 export function readCardEditUpload<T>(
@@ -253,6 +265,7 @@ export function readCardEditUpload<T>(
         request,
         {
             label: 320,
+            codes: 4 * 1024 * 1024,
             revision: 10,
             removeImages: positionsLimit,
             imageOrder: positionsLimit,
@@ -267,6 +280,9 @@ export function readCardEditUpload<T>(
             }
             const input = cardEditInput.parse({
                 label: values.label,
+                ...(values.codes !== undefined
+                    ? { codes: JSON.parse(values.codes) }
+                    : {}),
                 revision: Number(values.revision),
                 removeImages: JSON.parse(values.removeImages ?? ""),
                 ...(values.imageOrder !== undefined

@@ -13,3 +13,9 @@ Icon source: https://raw.githubusercontent.com/google/material-design-icons/mast
 Reference: https://www.shadcn.io/icon/material-symbols-rounded-corner
 Changes: inherits the current text color and is sized for the image toolbar.
 License copy: material-symbols-Apache-2.0.txt
+
+Material Symbols barcode-scanner icon by Google, licensed under Apache License 2.0.
+Icon source: https://api.iconify.design/material-symbols/barcode-scanner.svg
+Reference: https://www.shadcn.io/icon/material-symbols-barcode-scanner
+Changes: inherits the current text color and is sized for the image toolbar.
+License copy: material-symbols-Apache-2.0.txt

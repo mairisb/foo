@@ -22,7 +22,11 @@ export default defineConfig({
         },
         {
             name: "mobile",
-            testMatch: ["**/wallet.spec.ts", "**/hydration.spec.ts"],
+            testMatch: [
+                "**/wallet.spec.ts",
+                "**/codes.spec.ts",
+                "**/hydration.spec.ts",
+            ],
             use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" },
         },
         {
@@ -47,7 +51,11 @@ export default defineConfig({
             ? [
                   {
                       name: "lan",
-                      testMatch: ["**/wallet.spec.ts", "**/hydration.spec.ts"],
+                      testMatch: [
+                          "**/wallet.spec.ts",
+                          "**/codes.spec.ts",
+                          "**/hydration.spec.ts",
+                      ],
                       use: {
                           ...devices["iPhone 13"],
                           defaultBrowserType: "chromium" as const,

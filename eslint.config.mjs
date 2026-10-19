@@ -17,10 +17,12 @@ export default defineConfig([
         files: [
             "src/components/card-form.tsx",
             "src/components/card-detail.tsx",
+            "src/components/card-codes.tsx",
         ],
         rules: {
             // Browser requests carry the session for private images and support
-            // temporary blob URLs; these images must bypass server optimization.
+            // temporary blob URLs and generated code data URLs; these images must
+            // bypass server optimization.
             "@next/next/no-img-element": "off",
         },
     },

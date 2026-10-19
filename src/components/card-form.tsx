@@ -3,7 +3,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { cn } from "cn";
-import { ArrowDown, ArrowUp, RotateCcw, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2, RotateCcw, RotateCw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +23,9 @@ import {
 import { api } from "@/lib/api-client";
 import { Dialog } from "./dialog";
 import { PerspectiveEditor } from "./perspective-editor";
+import { CardCodes } from "./card-codes";
+import { codeKey, maxCardCodes, type CardCode } from "@/lib/card-codes";
+import { scanImageCodes } from "@/lib/barcode-scanner";
 
 function ImagePreview({
     file,
@@ -113,6 +117,9 @@ export function CardForm({
     onCloseAdjustment: () => void;
 }) {
     const [busy, setBusy] = useState(false);
+    const [codes, setCodes] = useState<CardCode[]>(card?.codes ?? []);
+    const [decodingImageId, setDecodingImageId] = useState<string | null>(null);
+    const mounted = useRef(true);
     const [error, setError] = useState("");
     const [images, setImages] = useState<DraftImage[]>(() =>
         card
@@ -136,11 +143,77 @@ export function CardForm({
     const [adjustingBusy, setAdjustingBusy] = useState(false);
     const adjustmentButton = useRef<HTMLButtonElement | null>(null);
     const restoreAdjustmentFocus = useRef(false);
-    const controlsDisabled = busy || adjustingId !== null;
+    const controlsDisabled =
+        busy || decodingImageId !== null || adjustingId !== null;
     const adjustingIndex = images.findIndex(
         (image) => image.id === adjustingId,
     );
     const adjustingImage = images[adjustingIndex];
+
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
+
+    async function scanCodes(image: DraftImage) {
+        if (controlsDisabled) {
+            return;
+        }
+        setDecodingImageId(image.id);
+        try {
+            let blob: Blob;
+            if (image.kind === "new") {
+                blob = image.file;
+            } else {
+                const response = await fetch(image.src);
+                if (!response.ok) {
+                    throw new Error(
+                        "Couldn't load this image. Close and reopen the card to retry.",
+                    );
+                }
+                blob = await response.blob();
+            }
+            const found = await scanImageCodes(blob);
+            if (!mounted.current) {
+                return;
+            }
+            if (found.length === 0) {
+                toast.error(
+                    "No barcode or QR code found. Try a clearer image or adjust its corners.",
+                    { id: "card-image-scan" },
+                );
+                return;
+            }
+            const existing = new Set(codes.map(codeKey));
+            const added = found.filter((code) => !existing.has(codeKey(code)));
+            if (codes.length + added.length > maxCardCodes) {
+                toast.error(
+                    `A card can have up to ${maxCardCodes} codes. Remove a code before scanning again.`,
+                    { id: "card-image-scan" },
+                );
+                return;
+            }
+            setCodes((current) => [...current, ...added]);
+            toast.success(
+                added.length > 0
+                    ? `Added ${added.length} ${added.length === 1 ? "code" : "codes"}. Save the card to keep ${added.length === 1 ? "it" : "them"}.`
+                    : "These codes are already on the card.",
+                { id: "card-image-scan" },
+            );
+        } catch {
+            if (mounted.current) {
+                toast.error("Couldn't scan this image. Please try again.", {
+                    id: "card-image-scan",
+                });
+            }
+        } finally {
+            if (mounted.current) {
+                setDecodingImageId(null);
+            }
+        }
+    }
 
     useEffect(() => {
         function clearDrag() {
@@ -270,7 +343,7 @@ export function CardForm({
     }
     async function submit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (adjustingId !== null) {
+        if (controlsDisabled) {
             return;
         }
         setBusy(true);
@@ -278,6 +351,7 @@ export function CardForm({
         const form = new FormData(event.currentTarget);
         const upload = new FormData();
         upload.set("label", String(form.get("label")));
+        upload.set("codes", JSON.stringify(codes));
         if (card) {
             const kept = new Set(
                 images
@@ -372,7 +446,7 @@ export function CardForm({
                         : cancelAdjustment
                     : onClose
             }
-            closeDisabled={busy || adjustingBusy}
+            closeDisabled={busy || adjustingBusy || decodingImageId !== null}
             onPaste={(event) => {
                 const files = Array.from(event.clipboardData.files).filter(
                     (file) => file.type.startsWith("image/"),
@@ -402,7 +476,11 @@ export function CardForm({
                             type="button"
                             variant="outline"
                             className="h-11"
-                            disabled={busy || adjustingBusy}
+                            disabled={
+                                busy ||
+                                adjustingBusy ||
+                                decodingImageId !== null
+                            }
                             onClick={onClose}
                         >
                             Cancel
@@ -438,6 +516,17 @@ export function CardForm({
                         />
                         <BaseField.Error render={<FieldError />} />
                     </BaseField.Root>
+                    <CardCodes
+                        codes={codes}
+                        disabled={controlsDisabled}
+                        onRemove={(index) =>
+                            setCodes((current) =>
+                                current.filter(
+                                    (_, position) => position !== index,
+                                ),
+                            )
+                        }
+                    />
                     <Field>
                         <FieldLabel htmlFor="card-images">
                             Images (optional)
@@ -611,6 +700,37 @@ export function CardForm({
                                             }
                                         >
                                             <RotateCw aria-hidden="true" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-11"
+                                            disabled={controlsDisabled}
+                                            aria-label={`Scan image ${index + 1} for codes`}
+                                            title="Scan codes"
+                                            aria-busy={
+                                                decodingImageId === image.id
+                                            }
+                                            onClick={() => {
+                                                void scanCodes(image);
+                                            }}
+                                        >
+                                            {decodingImageId === image.id ? (
+                                                <Loader2
+                                                    aria-hidden="true"
+                                                    className="animate-spin"
+                                                />
+                                            ) : (
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 24 24"
+                                                    fill="currentColor"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M1 21v-5h2v3h3v2zm17 0v-2h3v-3h2v5zM4 18V6h2v12zm3 0V6h1v12zm3 0V6h2v12zm3 0V6h3v12zm4 0V6h1v12zm2 0V6h1v12zM1 8V3h5v2H3v3zm20 0V5h-3V3h5v5z" />
+                                                </svg>
+                                            )}
                                         </Button>
                                         <Button
                                             type="button"

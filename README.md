@@ -97,7 +97,13 @@ Image bytes live in PostgreSQL's card_images table and persist in the same Docke
 
 Existing number-based cards and their barcode display remain readable. New cards do not ask for a number or barcode format. HEIC and other formats are not accepted in this iteration.
 
-Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, the third adds image storage, the fourth removes the two-image restriction, and the fifth adds card revisions for safe editing.
+Migrations are transactional and checksummed. Do not edit applied files; add a new migration. The second migration narrows the original scaffold, the third adds image storage, the fourth removes the two-image restriction, the fifth adds card revisions for safe editing, and the sixth adds extracted codes.
+
+Use the barcode-scanner icon beside an image's rotation controls while creating or editing a card. It extracts supported barcodes and QR codes into the draft, skips duplicates, and shows a success or failure toast. Extracted symbols and their values appear between the card name and images. Remove codes in the editor; Save keeps additions/removals, and Cancel discards them. Codes remain on the card if their source image is removed. Existing number-based barcodes are preserved separately.
+
+Decoding and symbol generation use zxing-wasm in the browser, with the matching WebAssembly file served by the app at /barcode-engine.wasm. No scan image is sent to an external service, and no browser BarcodeDetector or camera permission is required. Scanning handles multiple codes, rotation, inversion, and camera orientation on a canvas capped at 3000px per side. Poor or small symbols may require a clearer image or manual corner adjustment. The first scan or code display loads the engine. Pending scanning disables draft actions and dismissal; failed scans can retry.
+
+Extracted codes live in cards.codes in PostgreSQL. The optional codes multipart field is a JSON array of format, text, bytes (base64 raw payload), and gs1 objects, limited to 64 unique codes and 4 MiB of form metadata. Values and payloads are bounded and validated. Creation defaults to no codes; edits that omit the field preserve existing codes, and an empty array removes all extracted codes. Code changes use the same transaction, revision, session, and origin checks as card/image edits.
 
 ## Editing and deletion
 
