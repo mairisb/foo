@@ -201,6 +201,7 @@ export function PerspectiveEditor({
             instance = scanic.createCornerEditor({
                 container: host.current,
                 image: source,
+                magnifier: { zoom: 1 },
                 toolbar: { enabled: false },
                 handleHitArea: 44,
                 theme: {
