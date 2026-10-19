@@ -119,7 +119,9 @@ Delete card requires confirmation and permanently removes the card and all its i
 
 ## Icons
 
-The header and favicon use the Material Symbols cards-stack icon in white on a rounded black background. Edit public/icon.svg, then run npm run icons:generate to regenerate the 16/32px favicon, 180px phone icon, and 192/512px app icons. Attribution and the icon's license are in public/licenses.
+UI icons use rounded variants from the Material Symbols collection shown on shadcn.io. Choose the -rounded variants when adding icons. The local React components in src/components/icons.tsx cover dialog/menu controls, image tools, selectors, loading, and toast messages without runtime icon-service requests. Reuse these components when adding controls, including in generated shadcn/ui components. Icon attribution and the Apache 2.0 license are in public/licenses.
+
+The header and favicon use the rounded Material Symbols cards-stack icon in white on a rounded black background. Edit public/icon.svg, then run npm run icons:generate to regenerate the 16/32px favicon, 180px phone icon, and 192/512px app icons. Attribution and the icon's license are in public/licenses.
 
 Home-screen PNGs use an opaque black background and extra padding around the same white symbol. The manifest declares the 192/512px assets as both regular and maskable icons; the 180px touch icon uses the same artwork for shortcut fallback. Android can apply its launcher shape without exposing transparent corners or clipping the symbol. After changing these assets, bump their URL versions in the manifest and page metadata, refresh the page, and remove and re-add an existing home-screen shortcut to pick up the new icon. The launcher and browser still control the final shape and padding.
 

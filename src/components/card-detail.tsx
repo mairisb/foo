@@ -5,7 +5,7 @@ import { cardImageUrl, formatNames } from "@/lib/cards";
 import { Dialog } from "./dialog";
 import { FieldError } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
-import { EllipsisVertical } from "lucide-react";
+import { EllipsisVertical } from "@/components/icons";
 import {
     DropdownMenu,
     DropdownMenuContent,

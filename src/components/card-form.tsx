@@ -3,7 +3,15 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
 import { cn } from "cn";
-import { ArrowDown, ArrowUp, Loader2, RotateCcw, RotateCw } from "lucide-react";
+import {
+    ArrowDown,
+    ArrowUp,
+    BarcodeScannerIcon,
+    Loader2,
+    RotateCcw,
+    RotateCw,
+    RoundedCornerIcon,
+} from "@/components/icons";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -722,14 +730,7 @@ export function CardForm({
                                                     className="animate-spin"
                                                 />
                                             ) : (
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    viewBox="0 0 24 24"
-                                                    fill="currentColor"
-                                                    aria-hidden="true"
-                                                >
-                                                    <path d="M1 21v-5h2v3h3v2zm17 0v-2h3v-3h2v5zM4 18V6h2v12zm3 0V6h1v12zm3 0V6h2v12zm3 0V6h3v12zm4 0V6h1v12zm2 0V6h1v12zM1 8V3h5v2H3v3zm20 0V5h-3V3h5v5z" />
-                                                </svg>
+                                                <BarcodeScannerIcon />
                                             )}
                                         </Button>
                                         <Button
@@ -746,15 +747,7 @@ export function CardForm({
                                                 onAdjustImage(image.id);
                                             }}
                                         >
-                                            <svg
-                                                aria-hidden="true"
-                                                focusable="false"
-                                                viewBox="0 -960 960 960"
-                                                fill="currentColor"
-                                                className="size-5"
-                                            >
-                                                <path d="M120-120v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm0-160v-80h80v80h-80Zm160 640v-80h80v80h-80Zm0-640v-80h80v80h-80Zm160 640v-80h80v80h-80Zm160 0v-80h80v80h-80Zm160 0v-80h80v80h-80Zm0-160v-80h80v80h-80Zm80-160h-80v-200q0-50-35-85t-85-35H440v-80h200q83 0 141.5 58.5T840-640v200Z" />
-                                            </svg>
+                                            <RoundedCornerIcon />
                                         </Button>
                                         <Button
                                             type="button"

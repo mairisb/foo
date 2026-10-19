@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Eye, LoaderCircle, Undo2 } from "lucide-react";
+import { Eye, LoaderCircle, Undo2 } from "@/components/icons";
 import type { CornerEditor } from "scanic";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";

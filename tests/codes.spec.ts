@@ -83,7 +83,10 @@ test("scanned barcodes and QR codes persist with the card and remain draft until
         name: "Scan image 1 for codes",
         exact: true,
     });
-    await expect(scan.locator("svg path")).toHaveAttribute("d", /^M1 21v-5/);
+    await expect(scan.locator("svg")).toHaveAttribute(
+        "data-material-symbol",
+        "barcode-scanner-rounded",
+    );
     await scan.scrollIntoViewIfNeeded();
     await page.screenshot({
         path: testInfo.outputPath("scan-image-toolbar.png"),

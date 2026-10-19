@@ -11,6 +11,18 @@ export default defineConfig([
         files: ["**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
         rules: {
             curly: ["error", "all"],
+            "no-restricted-imports": [
+                "error",
+                {
+                    paths: [
+                        {
+                            name: "lucide-react",
+                            message:
+                                "Use Material Symbols from @/components/icons.",
+                        },
+                    ],
+                },
+            ],
         },
     },
     {
