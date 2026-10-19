@@ -353,9 +353,7 @@ export function CardForm({
                 adjustingImage ? "flex flex-1 overflow-hidden p-0" : undefined
             }
             headerActions={
-                adjustingImage && !previewing ? (
-                    <div ref={setScanHeader} />
-                ) : undefined
+                adjustingImage ? <div ref={setScanHeader} /> : undefined
             }
             footer={
                 adjustingImage ? (

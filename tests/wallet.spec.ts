@@ -35,6 +35,30 @@ async function dismissDialog(page: Page) {
         .click();
 }
 
+async function selectDocumentCorners(page: Page) {
+    const positions: [string, number, number][] = [
+        ["Top-left corner", 6, 2],
+        ["Top-right corner", -3, 5],
+        ["Bottom-right corner", -6, -1],
+        ["Bottom-left corner", 2, -5],
+    ];
+    // Place the synthetic document's four corners from the default inset,
+    // using the same keyboard controls available to the user (10px steps).
+    for (const [name, horizontal, vertical] of positions) {
+        const handle = page.getByRole("button", { name, exact: true });
+        for (let step = 0; step < Math.abs(horizontal); step++) {
+            await handle.press(
+                horizontal > 0 ? "Shift+ArrowRight" : "Shift+ArrowLeft",
+            );
+        }
+        for (let step = 0; step < Math.abs(vertical); step++) {
+            await handle.press(
+                vertical > 0 ? "Shift+ArrowDown" : "Shift+ArrowUp",
+            );
+        }
+    }
+}
+
 test("Scanic straightens document corners during upload and editing", async ({
     page,
 }, testInfo) => {
@@ -95,6 +119,12 @@ test("Scanic straightens document corners during upload and editing", async ({
     ).toHaveCount(0);
     await expect(page.getByLabel("Card name", { exact: true })).toBeHidden();
     await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect(
+        section.getByRole("button", { name: /detection/i }),
+    ).toHaveCount(0);
+    await expect(section.locator('[data-slot="scan-candidate"]')).toHaveCount(
+        0,
+    );
     // Escape exits this tool and preserves the card form and original image.
     await section
         .getByRole("button", { name: "Top-left corner", exact: true })
@@ -186,7 +216,7 @@ test("Scanic straightens document corners during upload and editing", async ({
         animations: "disabled",
     });
     await expect(section.getByRole("status")).toHaveText(
-        "Corners detected. Adjust them if needed.",
+        "Move the four corners into place.",
     );
     await handle.scrollIntoViewIfNeeded();
     const before = await handle.getAttribute("style");
@@ -228,8 +258,11 @@ test("Scanic straightens document corners during upload and editing", async ({
         .getByRole("button", { name: "Reset corners", exact: true })
         .click();
     await expect(handle).toHaveAttribute("style", before!);
-    // Reset restores the automatically detected quadrilateral. The preview's
-    // colors and dimensions verify detection without manually placing corners.
+    // Reset restores the default inset; manually place the photographed
+    // document's corners before verifying the resulting rectangle.
+    await selectDocumentCorners(page);
+    const manualSelection = await handle.getAttribute("style");
+    expect(manualSelection).not.toBe(before);
     await section.getByRole("button", { name: "Preview", exact: true }).click();
     const previewDialog = page.getByRole("dialog", {
         name: "Image 1 preview",
@@ -293,12 +326,14 @@ test("Scanic straightens document corners during upload and editing", async ({
     // Preview is a history layer. Returning retains the same mounted editor
     // and its exact selection, and Forward restores the result.
     await page.goBack();
-    await expect(handle).toHaveAttribute("style", before!);
+    await expect(handle).toHaveAttribute("style", manualSelection!);
     await expect(
         section.getByRole("button", { name: "Preview", exact: true }),
     ).toBeFocused();
     await handle.press("Shift+ArrowRight");
-    await expect.poll(() => handle.getAttribute("style")).not.toBe(before);
+    await expect
+        .poll(() => handle.getAttribute("style"))
+        .not.toBe(manualSelection);
     const changedSelection = await handle.getAttribute("style");
     await page.goForward();
     await expect(preview).toBeVisible();
@@ -315,11 +350,13 @@ test("Scanic straightens document corners during upload and editing", async ({
     await section
         .getByRole("button", { name: "Reset corners", exact: true })
         .click();
+    await expect(handle).toHaveAttribute("style", before!);
+    await selectDocumentCorners(page);
     await section.getByRole("button", { name: "Preview", exact: true }).click();
     await previewDialog
         .getByRole("button", { name: "Close preview", exact: true })
         .click();
-    await expect(handle).toHaveAttribute("style", before!);
+    await expect(handle).toHaveAttribute("style", manualSelection!);
     await expectFittedEditor();
     await page.evaluate(() => {
         const original = HTMLCanvasElement.prototype.toBlob;
@@ -428,6 +465,15 @@ test("Scanic straightens document corners during upload and editing", async ({
         await expect(
             tool.getByRole("button", { name: "Apply", exact: true }),
         ).toBeEnabled();
+        const savedHandle = tool.getByRole("button", {
+            name: "Top-left corner",
+            exact: true,
+        });
+        const startingSelection = await savedHandle.getAttribute("style");
+        await savedHandle.press("Shift+ArrowRight");
+        await expect
+            .poll(() => savedHandle.getAttribute("style"))
+            .not.toBe(startingSelection);
         await tool.getByRole("button", { name: "Apply", exact: true }).click();
         await expect(tool).toHaveCount(0);
     }
@@ -490,7 +536,7 @@ test("Scanic straightens document corners during upload and editing", async ({
     expect(externalRequests).toEqual([]);
 });
 
-test("Scanic keeps manual corners available when detection misses or fails", async ({
+test("Scanic adjusts blank images manually and cancels without changes", async ({
     page,
 }) => {
     const errors: string[] = [];
@@ -518,20 +564,7 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
         name: "Adjust image 1 corners",
         exact: true,
     });
-    for (const fail of [false, true]) {
-        if (fail) {
-            await page.evaluate(() => {
-                const original =
-                    OffscreenCanvasRenderingContext2D.prototype.getImageData;
-                OffscreenCanvasRenderingContext2D.prototype.getImageData =
-                    function () {
-                        OffscreenCanvasRenderingContext2D.prototype.getImageData =
-                            original;
-                        Reflect.set(window, "detectionReadFailed", true);
-                        throw new Error("Synthetic detection failure");
-                    };
-            });
-        }
+    for (const dismiss of ["Escape", "Cancel"]) {
         await page
             .getByRole("button", {
                 name: "Adjust image 1 corners",
@@ -539,7 +572,7 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
             })
             .click();
         await expect(section.getByRole("status")).toHaveText(
-            "Couldn't detect corners. Drag them into place.",
+            "Move the four corners into place.",
         );
         const handle = section.getByRole("button", {
             name: "Top-left corner",
@@ -562,12 +595,16 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
         await page
             .getByRole("button", { name: "Close preview", exact: true })
             .click();
-        await section
-            .getByRole("button", {
-                name: "Cancel corner adjustment",
-                exact: true,
-            })
-            .click();
+        if (dismiss === "Escape") {
+            await handle.press("Escape");
+        } else {
+            await section
+                .getByRole("button", {
+                    name: "Cancel corner adjustment",
+                    exact: true,
+                })
+                .click();
+        }
         await expect(section).toHaveCount(0);
         const bytes = await page
             .getByRole("img", { name: "Preview of image 1", exact: true })
@@ -580,9 +617,6 @@ test("Scanic keeps manual corners available when detection misses or fails", asy
             );
         expect(Buffer.from(bytes)).toEqual(originalBytes);
     }
-    expect(
-        await page.evaluate(() => Reflect.get(window, "detectionReadFailed")),
-    ).toBe(true);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     expect(
         (await (await page.request.get("/api/cards")).json()).cards,

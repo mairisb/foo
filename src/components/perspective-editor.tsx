@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Eye, LoaderCircle, Undo2 } from "lucide-react";
-import type { CornerEditor, CornerPoints } from "scanic";
+import type { CornerEditor } from "scanic";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { maxImageBytes, type ImageRotation } from "@/lib/cards";
@@ -46,9 +46,6 @@ export function PerspectiveEditor({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [hasPreview, setHasPreview] = useState(false);
-    const [detectionStatus, setDetectionStatus] = useState(
-        "Detecting corners...",
-    );
 
     useEffect(() => {
         if (previewing) {
@@ -113,28 +110,6 @@ export function PerspectiveEditor({
             context.translate(source.width / 2, source.height / 2);
             context.rotate((rotation * Math.PI) / 180);
             context.drawImage(image, -width / 2, -height / 2, width, height);
-
-            let corners: CornerPoints | undefined;
-            try {
-                const detection = await scanic.scanDocument(source, {
-                    mode: "detect",
-                    detector: "classical",
-                    maxProcessingDimension: 1000,
-                });
-                if (detection.success && detection.corners) {
-                    corners = detection.corners;
-                }
-            } catch {
-                // Detection is optional; keep manual corner selection available.
-            }
-            if (disposed || !host.current) {
-                return;
-            }
-            setDetectionStatus(
-                corners
-                    ? "Corners detected. Adjust them if needed."
-                    : "Couldn't detect corners. Drag them into place.",
-            );
 
             async function transform(apply: boolean) {
                 if (disposed || working || !instance) {
@@ -226,7 +201,6 @@ export function PerspectiveEditor({
             instance = scanic.createCornerEditor({
                 container: host.current,
                 image: source,
-                corners,
                 toolbar: { enabled: false },
                 handleHitArea: 44,
                 theme: {
@@ -297,7 +271,11 @@ export function PerspectiveEditor({
             }}
         >
             <p role="status" className="sr-only">
-                {busy ? "Straightening image..." : detectionStatus}
+                {busy
+                    ? "Straightening image..."
+                    : ready
+                      ? "Move the four corners into place."
+                      : "Loading image..."}
             </p>
             <fieldset
                 disabled={busy}
@@ -323,7 +301,10 @@ export function PerspectiveEditor({
                             aria-label="Reset corners"
                             title="Reset corners"
                             disabled={!ready}
-                            onClick={() => editor.current?.reset()}
+                            onClick={() => {
+                                editor.current?.reset();
+                                setError("");
+                            }}
                         >
                             <Undo2 aria-hidden="true" />
                         </Button>
