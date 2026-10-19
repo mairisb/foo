@@ -35,6 +35,415 @@ async function dismissDialog(page: Page) {
         .click();
 }
 
+async function imageTransfer(
+    page: Page,
+    files: { name: string; mimeType: string; buffer: Buffer }[],
+) {
+    return page.evaluateHandle(
+        (files) => {
+            const transfer = new DataTransfer();
+            for (const file of files) {
+                const bytes = Uint8Array.from(atob(file.data), (character) =>
+                    character.charCodeAt(0),
+                );
+                transfer.items.add(
+                    new File([bytes], file.name, { type: file.mimeType }),
+                );
+            }
+            return transfer;
+        },
+        files.map((file) => ({
+            name: file.name,
+            mimeType: file.mimeType,
+            data: file.buffer.toString("base64"),
+        })),
+    );
+}
+
+test("clipboard images append when creating and editing cards", async ({
+    page,
+}, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await register(page.request);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const name = page.getByLabel("Card name", { exact: true });
+    const previews = page.getByRole("img", { name: /^Preview of image/ });
+    const front = await syntheticImage("Front", "jpeg");
+    const back = await syntheticImage("Back");
+    const extra = await syntheticImage("Extra", "webp");
+    async function paste(files: (typeof front)[], target = dialog, text = "") {
+        const clipboard = await imageTransfer(page, files);
+        await clipboard.evaluate(
+            (data, text) => data.setData("text/plain", text),
+            text,
+        );
+        try {
+            return await target.evaluate((element, clipboardData) => {
+                const event = new ClipboardEvent("paste", {
+                    bubbles: true,
+                    cancelable: true,
+                    clipboardData,
+                });
+                element.dispatchEvent(event);
+                return event.defaultPrevented;
+            }, clipboard);
+        } finally {
+            await clipboard.dispose();
+        }
+    }
+    await name.fill("Pasted images");
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles(front);
+    expect(
+        await paste(
+            [back, extra],
+            name,
+            "Do not put this image caption in the card name",
+        ),
+    ).toBe(true);
+    await expect(name).toHaveValue("Pasted images");
+    await expect(previews).toHaveCount(3);
+    for (const preview of await previews.all()) {
+        await expect
+            .poll(() =>
+                preview.evaluate(
+                    (image: HTMLImageElement) => image.naturalWidth,
+                ),
+            )
+            .toBeGreaterThan(0);
+    }
+    // Text-only clipboard events keep the input's normal paste behavior.
+    expect(await paste([], name, "Text paste remains available")).toBe(false);
+    expect(
+        await paste(
+            [
+                {
+                    name: "notes.txt",
+                    mimeType: "text/plain",
+                    buffer: Buffer.from("Text attachment"),
+                },
+            ],
+            name,
+            "Text",
+        ),
+    ).toBe(false);
+    await expect(previews).toHaveCount(3);
+    expect(
+        await paste([
+            back,
+            { ...back, name: "unsupported.gif", mimeType: "image/gif" },
+        ]),
+    ).toBe(true);
+    await expect(page.getByRole("alert")).toHaveText(
+        "Choose JPG, PNG, or WebP images.",
+    );
+    await expect(previews).toHaveCount(3);
+    const oversized = await page.evaluateHandle(() => {
+        const clipboard = new DataTransfer();
+        clipboard.items.add(
+            new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.png", {
+                type: "image/png",
+            }),
+        );
+        return clipboard;
+    });
+    await dialog.evaluate((element, clipboardData) => {
+        element.dispatchEvent(
+            new ClipboardEvent("paste", {
+                bubbles: true,
+                cancelable: true,
+                clipboardData,
+            }),
+        );
+    }, oversized);
+    await oversized.dispose();
+    await expect(page.getByRole("alert")).toHaveText(
+        "Each image must be 10 MB or smaller.",
+    );
+    await expect(previews).toHaveCount(3);
+    // Footer controls are outside the form element but still accept image pastes.
+    expect(
+        await paste(
+            [front],
+            dialog.getByRole("button", { name: "Cancel", exact: true }),
+        ),
+    ).toBe(true);
+    await expect(previews).toHaveCount(4);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page
+        .getByRole("button", { name: "Adjust image 1 corners", exact: true })
+        .click();
+    await expect(dialog).toHaveAccessibleName("Adjust image 1 corners");
+    expect(await paste([extra])).toBe(true);
+    await dialog
+        .getByRole("button", { name: "Cancel corner adjustment", exact: true })
+        .click();
+    await expect(dialog).toHaveAccessibleName("Add card");
+    await expect(previews).toHaveCount(4);
+    expect(
+        (await (await page.request.get("/api/cards")).json()).cards,
+    ).toHaveLength(0);
+    await dialog.locator('[data-slot="dialog-body"]').evaluate((body) => {
+        body.scrollTop = 0;
+    });
+    await page.screenshot({
+        path: testInfo.outputPath("clipboard-images.png"),
+        animations: "disabled",
+    });
+    let releaseSave!: () => void;
+    const gate = new Promise<void>((resolve) => {
+        releaseSave = resolve;
+    });
+    await page.route("**/api/cards", async (route) => {
+        if (route.request().method() === "POST") {
+            await gate;
+        }
+        await route.continue();
+    });
+    const saving = page.waitForResponse(
+        (response) =>
+            response.request().method() === "POST" &&
+            response.url().endsWith("/api/cards"),
+    );
+    try {
+        await dialog
+            .getByRole("button", { name: "Save card", exact: true })
+            .click();
+        await expect(
+            dialog.getByRole("button", { name: "Saving...", exact: true }),
+        ).toBeDisabled();
+        expect(await paste([back])).toBe(true);
+        await expect(previews).toHaveCount(4);
+    } finally {
+        releaseSave();
+    }
+    const response = await saving;
+    expect(response.status()).toBe(201);
+    const { card } = await response.json();
+    expect(card.imageCount).toBe(4);
+    await page.unroute("**/api/cards");
+    await expect(dialog).toHaveCount(0);
+    const original = await (
+        await page.request.get(`/api/cards/${card.id}/images/1`)
+    ).body();
+    await page.reload();
+    await page
+        .getByRole("button", { name: "Open Pasted images", exact: true })
+        .click();
+    await chooseCardAction(page, "Edit card");
+    await expect(dialog).toHaveAccessibleName("Edit card");
+    expect(await paste([extra])).toBe(true);
+    await expect(previews).toHaveCount(5);
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toHaveAccessibleName("Pasted images");
+    expect(
+        (await (await page.request.get(`/api/cards/${card.id}`)).json()).card
+            .imageCount,
+    ).toBe(4);
+    await chooseCardAction(page, "Edit card");
+    await expect(dialog).toHaveAccessibleName("Edit card");
+    expect(await paste([extra])).toBe(true);
+    await dialog
+        .getByRole("button", { name: "Save changes", exact: true })
+        .click();
+    await expect(dialog).toHaveAccessibleName("Pasted images");
+    await page.reload();
+    expect(
+        (await (await page.request.get(`/api/cards/${card.id}`)).json()).card,
+    ).toMatchObject({ imageCount: 5, revision: 1 });
+    expect(
+        await (await page.request.get(`/api/cards/${card.id}/images/1`)).body(),
+    ).toEqual(original);
+    expect(errors).toEqual([]);
+});
+
+test("images can be dropped when creating and editing cards", async ({
+    page,
+}, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await register(page.request);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Add card", exact: true }).click();
+    await page.getByLabel("Card name", { exact: true }).fill("Dropped images");
+    const front = await syntheticImage("Front", "jpeg");
+    const back = await syntheticImage("Back");
+    const extra = await syntheticImage("Extra", "webp");
+    const transfer = await imageTransfer(page, [back, extra]);
+    const dropZone = page.getByRole("group", {
+        name: "Image upload",
+        exact: true,
+    });
+    const previews = page.getByRole("img", { name: /^Preview of image/ });
+    await page
+        .getByLabel("Images (optional)", { exact: true })
+        .setInputFiles(front);
+    await dropZone.dispatchEvent("dragenter", { dataTransfer: transfer });
+    await dropZone.dispatchEvent("dragover", { dataTransfer: transfer });
+    await expect(dropZone).toHaveAttribute("data-dragging", "true");
+    // Moving over the button inside the drop area must keep its highlight.
+    await dropZone
+        .getByRole("button", { name: "Add images", exact: true })
+        .dispatchEvent("dragenter", { dataTransfer: transfer });
+    await dropZone.dispatchEvent("dragleave", { dataTransfer: transfer });
+    await expect(dropZone).toHaveAttribute("data-dragging", "true");
+    await page.screenshot({
+        path: testInfo.outputPath("image-drop-area.png"),
+        animations: "disabled",
+    });
+    await dropZone
+        .getByRole("button", { name: "Add images", exact: true })
+        .dispatchEvent("drop", { dataTransfer: transfer });
+    await expect(dropZone).toHaveAttribute("data-dragging", "false");
+    await expect(previews).toHaveCount(3);
+    for (const preview of await previews.all()) {
+        await expect
+            .poll(() =>
+                preview.evaluate(
+                    (image: HTMLImageElement) => image.naturalWidth,
+                ),
+            )
+            .toBeGreaterThan(0);
+    }
+    const outsideDropPrevented = await page
+        .getByRole("heading", { name: "Add card", exact: true })
+        .evaluate((heading, dataTransfer) => {
+            return !heading.dispatchEvent(
+                new DragEvent("drop", {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer,
+                }),
+            );
+        }, transfer);
+    expect(outsideDropPrevented).toBe(true);
+    await expect(previews).toHaveCount(3);
+    const invalid = await imageTransfer(page, [
+        front,
+        {
+            name: "notes.txt",
+            mimeType: "text/plain",
+            buffer: Buffer.from("Not an image"),
+        },
+    ]);
+    await dropZone.dispatchEvent("drop", { dataTransfer: invalid });
+    await expect(page.getByRole("alert")).toHaveText(
+        "Choose JPG, PNG, or WebP images.",
+    );
+    await expect(previews).toHaveCount(3);
+    await invalid.dispose();
+    const oversized = await page.evaluateHandle(() => {
+        const data = new DataTransfer();
+        data.items.add(
+            new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.png", {
+                type: "image/png",
+            }),
+        );
+        return data;
+    });
+    await dropZone.dispatchEvent("drop", { dataTransfer: oversized });
+    await expect(page.getByRole("alert")).toHaveText(
+        "Each image must be 10 MB or smaller.",
+    );
+    await expect(previews).toHaveCount(3);
+    await oversized.dispose();
+    const another = await imageTransfer(page, [front]);
+    await dropZone.dispatchEvent("drop", { dataTransfer: another });
+    await expect(previews).toHaveCount(4);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    let releaseSave!: () => void;
+    const heldSave = new Promise<void>((resolve) => {
+        releaseSave = resolve;
+    });
+    await page.route("**/api/cards", async (route) => {
+        if (route.request().method() === "POST") {
+            await heldSave;
+        }
+        await route.continue();
+    });
+    const saving = page.waitForResponse(
+        (response) =>
+            response.request().method() === "POST" &&
+            response.url().endsWith("/api/cards"),
+    );
+    try {
+        await page
+            .getByRole("button", { name: "Save card", exact: true })
+            .click();
+        await expect(dropZone).toHaveAttribute("aria-disabled", "true");
+        await dropZone.dispatchEvent("dragover", { dataTransfer: another });
+        await expect(
+            dropZone.getByRole("button", { name: "Add images", exact: true }),
+        ).toBeDisabled();
+        await dropZone.dispatchEvent("drop", { dataTransfer: another });
+        await expect(previews).toHaveCount(4);
+    } finally {
+        releaseSave();
+    }
+    const savedResponse = await saving;
+    expect(savedResponse.status()).toBe(201);
+    const { card } = await savedResponse.json();
+    expect(card.imageCount).toBe(4);
+    await page.unroute("**/api/cards");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const original: Buffer[] = [];
+    for (const position of [1, 2, 3, 4]) {
+        original.push(
+            await (
+                await page.request.get(
+                    `/api/cards/${card.id}/images/${position}`,
+                )
+            ).body(),
+        );
+    }
+    await transfer.dispose();
+    await another.dispose();
+    await page.reload();
+    await page
+        .getByRole("button", { name: "Open Dropped images", exact: true })
+        .click();
+    await chooseCardAction(page, "Edit card");
+    const editTransfer = await imageTransfer(page, [extra]);
+    await dropZone.dispatchEvent("drop", { dataTransfer: editTransfer });
+    await expect(previews).toHaveCount(5);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(
+        page.getByRole("dialog", { name: "Dropped images", exact: true }),
+    ).toBeVisible();
+    expect(
+        (await (await page.request.get(`/api/cards/${card.id}`)).json()).card
+            .imageCount,
+    ).toBe(4);
+    await chooseCardAction(page, "Edit card");
+    await dropZone.dispatchEvent("drop", { dataTransfer: editTransfer });
+    await expect(previews).toHaveCount(5);
+    await page
+        .getByRole("button", { name: "Save changes", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Dropped images", exact: true }),
+    ).toBeVisible();
+    await editTransfer.dispose();
+    await page.reload();
+    expect(
+        (await (await page.request.get(`/api/cards/${card.id}`)).json()).card,
+    ).toMatchObject({ imageCount: 5, revision: 1 });
+    for (const [index, image] of original.entries()) {
+        expect(
+            await (
+                await page.request.get(
+                    `/api/cards/${card.id}/images/${index + 1}`,
+                )
+            ).body(),
+        ).toEqual(image);
+    }
+    expect(errors).toEqual([]);
+});
+
 async function selectDocumentCorners(page: Page) {
     const positions: [string, number, number][] = [
         ["Top-left corner", 6, 2],

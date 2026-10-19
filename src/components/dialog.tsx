@@ -18,6 +18,7 @@ export function Dialog({
     closeDisabled = false,
     className,
     bodyClassName,
+    onPaste,
 }: {
     title: string;
     headerActions?: React.ReactNode;
@@ -27,6 +28,7 @@ export function Dialog({
     closeDisabled?: boolean;
     className?: string;
     bodyClassName?: string;
+    onPaste?: React.ClipboardEventHandler<HTMLDivElement>;
 }) {
     const setPending = useContext(DialogPendingContext);
     const content = useRef<HTMLDivElement>(null);
@@ -54,6 +56,7 @@ export function Dialog({
                 ref={content}
                 initialFocus={content}
                 showCloseButton={false}
+                onPaste={onPaste}
                 className={cn(
                     "flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0",
                     className,

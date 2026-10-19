@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Form } from "@base-ui/react/form";
+import { cn } from "cn";
 import { ArrowDown, ArrowUp, RotateCcw, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +126,8 @@ export function CardForm({
             : [],
     );
     const imageInput = useRef<HTMLInputElement>(null);
+    const dragDepth = useRef(0);
+    const [draggingImages, setDraggingImages] = useState(false);
     const formId = useId();
     const nextImageId = useRef(0);
     const [orderMessage, setOrderMessage] = useState("");
@@ -138,6 +141,29 @@ export function CardForm({
         (image) => image.id === adjustingId,
     );
     const adjustingImage = images[adjustingIndex];
+
+    useEffect(() => {
+        function clearDrag() {
+            dragDepth.current = 0;
+            setDraggingImages(false);
+        }
+        function preventFileNavigation(event: DragEvent) {
+            if (event.dataTransfer?.types.includes("Files")) {
+                event.preventDefault();
+                if (event.type === "drop") {
+                    clearDrag();
+                }
+            }
+        }
+        window.addEventListener("dragover", preventFileNavigation);
+        window.addEventListener("drop", preventFileNavigation);
+        window.addEventListener("dragend", clearDrag);
+        return () => {
+            window.removeEventListener("dragover", preventFileNavigation);
+            window.removeEventListener("drop", preventFileNavigation);
+            window.removeEventListener("dragend", clearDrag);
+        };
+    }, []);
 
     useEffect(() => {
         if (adjustingId !== null) {
@@ -215,6 +241,9 @@ export function CardForm({
     }
 
     function chooseImages(files: File[]) {
+        if (controlsDisabled || files.length === 0) {
+            return;
+        }
         let message = "";
         if (files.some((file) => file.size > maxImageBytes)) {
             message = "Each image must be 10 MB or smaller.";
@@ -344,6 +373,15 @@ export function CardForm({
                     : onClose
             }
             closeDisabled={busy || adjustingBusy}
+            onPaste={(event) => {
+                const files = Array.from(event.clipboardData.files).filter(
+                    (file) => file.type.startsWith("image/"),
+                );
+                if (files.length > 0) {
+                    event.preventDefault();
+                    chooseImages(files);
+                }
+            }}
             className={
                 adjustingImage
                     ? "h-[calc(100dvh-2rem)] sm:max-w-2xl"
@@ -418,15 +456,78 @@ export function CardForm({
                                 )
                             }
                         />
-                        <Button
-                            type="button"
-                            variant="outline"
-                            className="h-11 w-fit"
-                            disabled={controlsDisabled}
-                            onClick={() => imageInput.current?.click()}
+                        <div
+                            role="group"
+                            aria-label="Image upload"
+                            aria-disabled={controlsDisabled}
+                            data-dragging={draggingImages && !controlsDisabled}
+                            className={cn(
+                                "grid gap-3 rounded-lg border border-dashed p-4",
+                                draggingImages &&
+                                    !controlsDisabled &&
+                                    "border-ring bg-muted",
+                            )}
+                            onDragEnter={(event) => {
+                                if (
+                                    !event.dataTransfer.types.includes("Files")
+                                ) {
+                                    return;
+                                }
+                                event.preventDefault();
+                                dragDepth.current++;
+                                if (!controlsDisabled) {
+                                    setDraggingImages(true);
+                                }
+                            }}
+                            onDragOver={(event) => {
+                                if (
+                                    event.dataTransfer.types.includes("Files")
+                                ) {
+                                    event.preventDefault();
+                                    event.dataTransfer.dropEffect =
+                                        controlsDisabled ? "none" : "copy";
+                                }
+                            }}
+                            onDragLeave={(event) => {
+                                if (
+                                    event.dataTransfer.types.includes("Files")
+                                ) {
+                                    event.preventDefault();
+                                    dragDepth.current = Math.max(
+                                        0,
+                                        dragDepth.current - 1,
+                                    );
+                                    if (dragDepth.current === 0) {
+                                        setDraggingImages(false);
+                                    }
+                                }
+                            }}
+                            onDrop={(event) => {
+                                if (
+                                    event.dataTransfer.types.includes("Files")
+                                ) {
+                                    event.preventDefault();
+                                    dragDepth.current = 0;
+                                    setDraggingImages(false);
+                                    chooseImages(
+                                        Array.from(event.dataTransfer.files),
+                                    );
+                                }
+                            }}
                         >
-                            Add images
-                        </Button>
+                            <p className="text-sm text-muted-foreground">
+                                Drop or paste images, or use Add images.
+                            </p>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 w-fit"
+                                disabled={controlsDisabled}
+                                onClick={() => imageInput.current?.click()}
+                            >
+                                Add images
+                            </Button>
+                        </div>
                         <FieldDescription>
                             Choose one or more images. Choose again to add more.
                             Use the arrows to reorder or rotate them. JPG, PNG
