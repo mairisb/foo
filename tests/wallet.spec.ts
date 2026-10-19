@@ -60,6 +60,288 @@ async function imageTransfer(
     );
 }
 
+test("full-page images fit without cropping and close with X, Escape, or browser Back", async ({
+    page,
+    context,
+}, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await register(page.request);
+    const source = await rotationImage();
+    const images = await Promise.all(
+        [
+            [240, 1200],
+            [1800, 240],
+        ].map(async ([width, height], index) => ({
+            ...source,
+            name: `viewer-${index}.png`,
+            buffer: await sharp(source.buffer)
+                .resize(width, height, { fit: "fill" })
+                .png()
+                .toBuffer(),
+        })),
+    );
+    const created = await page.request.post("/api/cards", {
+        headers: { origin },
+        multipart: cardForm("Viewer card", images),
+    });
+    expect(created.status()).toBe(201);
+    const { card } = await created.json();
+    await page.goto("/manifest.webmanifest");
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Open Viewer card", exact: true })
+        .click();
+    const detail = page.getByRole("dialog", {
+        name: "Viewer card",
+        exact: true,
+    });
+    await expect(detail).toBeVisible();
+    const url = page.url();
+    const pages = context.pages().length;
+    const historyLength = await page.evaluate(() => history.length);
+    await page.evaluate(() => {
+        document.documentElement.dataset.viewerTest = "same-document";
+    });
+    const viewer = page.getByRole("dialog", {
+        name: /^Image [12] of Viewer card$/,
+    });
+    async function fitted(position: number, screenshot = false) {
+        await expect(viewer).toBeVisible();
+        await expect(
+            viewer.getByRole("button", { name: "Close image", exact: true }),
+        ).toBeFocused();
+        await expect(viewer.getByRole("img")).toHaveCount(1);
+        await expect
+            .poll(() =>
+                viewer
+                    .getByRole("img")
+                    .evaluate(
+                        (image: HTMLImageElement) =>
+                            image.complete && image.naturalWidth > 0,
+                    ),
+            )
+            .toBe(true);
+        await expect
+            .poll(() =>
+                viewer.evaluate((element) => {
+                    const bounds = element.getBoundingClientRect();
+                    return (
+                        Math.abs(bounds.x) < 1 &&
+                        Math.abs(bounds.y) < 1 &&
+                        Math.abs(bounds.width - innerWidth) < 1 &&
+                        Math.abs(bounds.height - innerHeight) < 1 &&
+                        element.scrollWidth <= element.clientWidth &&
+                        element.scrollHeight <= element.clientHeight
+                    );
+                }),
+            )
+            .toBe(true);
+        const geometry = await viewer
+            .getByRole("img")
+            .evaluate((image: HTMLImageElement) => {
+                const rect = image.getBoundingClientRect();
+                const scale = Math.min(
+                    rect.width / image.naturalWidth,
+                    rect.height / image.naturalHeight,
+                );
+                const width = image.naturalWidth * scale;
+                const height = image.naturalHeight * scale;
+                return {
+                    fit: getComputedStyle(image).objectFit,
+                    left: Math.round(rect.left + (rect.width - width) / 2),
+                    top: Math.round(rect.top + (rect.height - height) / 2),
+                    width: Math.floor(width),
+                    height: Math.floor(height),
+                };
+            });
+        expect(geometry.fit).toBe("contain");
+        const capture = await page.screenshot({
+            scale: "css",
+            animations: "disabled",
+            ...(screenshot
+                ? {
+                      path: testInfo.outputPath(
+                          `full-page-image-${position}.png`,
+                      ),
+                  }
+                : {}),
+        });
+        const { data, info } = await sharp(capture)
+            .extract({
+                left: geometry.left,
+                top: geometry.top,
+                width: geometry.width,
+                height: geometry.height,
+            })
+            .removeAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+        const corners = [
+            { x: 0.05, y: 0.05, color: [240, 32, 32] },
+            { x: 0.95, y: 0.05, color: [32, 192, 32] },
+            { x: 0.05, y: 0.95, color: [32, 32, 240] },
+            { x: 0.95, y: 0.95, color: [224, 224, 32] },
+        ];
+        for (const corner of corners) {
+            const offset =
+                (Math.floor(corner.y * info.height) * info.width +
+                    Math.floor(corner.x * info.width)) *
+                info.channels;
+            for (let channel = 0; channel < 3; channel++) {
+                expect(
+                    Math.abs(data[offset + channel] - corner.color[channel]),
+                ).toBeLessThan(25);
+            }
+        }
+        expect(context.pages()).toHaveLength(pages);
+        await expect(page).toHaveURL(url);
+    }
+    for (const position of [1, 2]) {
+        const opener = page.getByRole("button", {
+            name: `Open image ${position} full size`,
+            exact: true,
+        });
+        for (const method of ["x", "escape", "back"]) {
+            await opener.scrollIntoViewIfNeeded();
+            const scrollTop = await detail
+                .locator('[data-slot="dialog-body"]')
+                .evaluate((element) => element.scrollTop);
+            await opener.click();
+            await fitted(position, method === "x");
+            expect(await page.evaluate(() => history.length)).toBe(
+                historyLength + 1,
+            );
+            expect(await page.evaluate(() => history.state.fooDialog)).toBe(
+                `card:${card.id}:image:${position}`,
+            );
+            if (method === "x") {
+                await viewer
+                    .getByRole("button", { name: "Close image", exact: true })
+                    .click();
+            } else if (method === "escape") {
+                await page.keyboard.press("Escape");
+            } else {
+                await page.goBack();
+            }
+            await expect(viewer).toHaveCount(0);
+            await expect(detail).toBeVisible();
+            await expect(opener).toBeFocused();
+            expect(
+                await detail
+                    .locator('[data-slot="dialog-body"]')
+                    .evaluate((element) => element.scrollTop),
+            ).toBeCloseTo(scrollTop, 0);
+            await expect(page.locator("html")).toHaveAttribute(
+                "data-viewer-test",
+                "same-document",
+            );
+        }
+    }
+    await page.goForward();
+    await fitted(2);
+    const initialViewport = page.viewportSize()!;
+    await page.setViewportSize(
+        initialViewport.width > initialViewport.height
+            ? { width: 390, height: 844 }
+            : { width: 844, height: 390 },
+    );
+    await fitted(2);
+    await page.setViewportSize(initialViewport);
+    await page.reload();
+    await fitted(2);
+    await page.keyboard.press("Escape");
+    await expect(detail).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/manifest\.webmanifest$/);
+    expect(errors).toEqual([]);
+});
+
+test("image viewer can close after load failures and skips stale image entries", async ({
+    page,
+}) => {
+    await register(page.request);
+    const created = await page.request.post("/api/cards", {
+        headers: { origin },
+        multipart: cardForm("Image retry", [await syntheticImage()]),
+    });
+    const { card } = await created.json();
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Open Image retry", exact: true })
+        .click();
+    const detail = page.getByRole("dialog", {
+        name: "Image retry",
+        exact: true,
+    });
+    const opener = page.getByRole("button", {
+        name: "Open image 1 full size",
+        exact: true,
+    });
+    await expect
+        .poll(() =>
+            opener
+                .getByRole("img")
+                .evaluate(
+                    (image: HTMLImageElement) =>
+                        image.complete && image.naturalWidth > 0,
+                ),
+        )
+        .toBe(true);
+    await page.route(
+        `**/api/cards/${card.id}/images/1?*`,
+        (route) => route.fulfill({ status: 503, body: "unavailable" }),
+        { times: 1 },
+    );
+    await opener.click();
+    const viewer = page.getByRole("dialog", {
+        name: "Image 1 of Image retry",
+        exact: true,
+    });
+    await expect(viewer.getByRole("alert")).toHaveText(
+        "Couldn't load this image. Close it and try again.",
+    );
+    await viewer
+        .getByRole("button", { name: "Close image", exact: true })
+        .click();
+    await expect(opener).toBeFocused();
+    await opener.click();
+    await expect
+        .poll(() =>
+            viewer
+                .getByRole("img")
+                .evaluate(
+                    (image: HTMLImageElement) =>
+                        image.complete && image.naturalWidth > 0,
+                ),
+        )
+        .toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(detail).toBeVisible();
+    const imageRequests: string[] = [];
+    page.on("request", (request) => {
+        if (/\/images\/999/.test(request.url())) {
+            imageRequests.push(request.url());
+        }
+    });
+    await page.evaluate((id) => {
+        history.pushState(
+            { ...history.state, fooDialog: `card:${id}:image:999` },
+            "",
+            location.href,
+        );
+        dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+    }, card.id);
+    await expect
+        .poll(() => page.evaluate(() => history.state.fooDialog))
+        .toBe(`card:${card.id}`);
+    await expect(detail).toBeVisible();
+    await expect(viewer).toHaveCount(0);
+    expect(imageRequests).toEqual([]);
+});
+
 test("clipboard images append when creating and editing cards", async ({
     page,
 }, testInfo) => {
@@ -1753,14 +2035,21 @@ test("sign in, create, read, edit, and delete cards across sessions", async ({
         fullPage: true,
         animations: "disabled",
     });
-    const fullSizePage = page.waitForEvent("popup");
-    await page.getByRole("link", { name: "Open image 1 full size" }).click();
-    const imagePage = await fullSizePage;
-    await imagePage.waitForLoadState();
-    expect(await imagePage.evaluate(() => document.contentType)).toBe(
-        "image/jpeg",
-    );
-    await imagePage.close();
+    await page
+        .getByRole("button", { name: "Open image 1 full size", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", {
+            name: "Image 1 of Gym membership",
+            exact: true,
+        }),
+    ).toBeVisible();
+    await page
+        .getByRole("button", { name: "Close image", exact: true })
+        .click();
+    await expect(
+        page.getByRole("dialog", { name: "Gym membership", exact: true }),
+    ).toBeVisible();
     await dismissDialog(page);
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login$/);

@@ -20,6 +20,7 @@ function readView(): DialogView {
         typeof view === "string" &&
         (view === "add" ||
             /^(card|edit):[\da-f-]{36}$/i.test(view) ||
+            /^card:[\da-f-]{36}:image:[1-9]\d*$/i.test(view) ||
             /^(add|edit:[\da-f-]{36}):scan:(new-\d+|saved-[1-9]\d*)(:preview)?$/i.test(
                 view,
             ))

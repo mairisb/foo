@@ -14,8 +14,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api-client";
 import { CardCodes } from "./card-codes";
+import { ImageViewer } from "./image-viewer";
 
-function CardImage({ card, position }: { card: Card; position: number }) {
+function CardImage({
+    card,
+    position,
+    onOpen,
+    disabled,
+}: {
+    card: Card;
+    position: number;
+    onOpen: () => void;
+    disabled: boolean;
+}) {
     const [failed, setFailed] = useState(false);
     const url = cardImageUrl(card, position);
     if (failed) {
@@ -27,10 +38,13 @@ function CardImage({ card, position }: { card: Card; position: number }) {
         );
     }
     return (
-        <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
+        <Button
+            id={`card-${card.id}-image-${position}`}
+            type="button"
+            variant="ghost"
+            className="h-auto w-full p-0 hover:bg-transparent"
+            disabled={disabled}
+            onClick={onOpen}
             aria-label={`Open image ${position} full size`}
         >
             <img
@@ -39,7 +53,7 @@ function CardImage({ card, position }: { card: Card; position: number }) {
                 alt={`Image ${position} of ${card.label}`}
                 onError={() => setFailed(true)}
             />
-        </a>
+        </Button>
     );
 }
 
@@ -48,11 +62,17 @@ export function CardDetail({
     onClose,
     onDelete,
     onEdit,
+    imagePosition,
+    onOpenImage,
+    onCloseImage,
 }: {
     card: Card;
     onClose: () => void;
     onDelete: (id: string) => void;
     onEdit: (card: Card) => void;
+    imagePosition: number | null;
+    onOpenImage: (position: number) => void;
+    onCloseImage: () => void;
 }) {
     const [barcodeFailed, setBarcodeFailed] = useState(false);
     const [confirming, setConfirming] = useState(false);
@@ -62,6 +82,17 @@ export function CardDetail({
     const actionsButton = useRef<HTMLButtonElement>(null);
     const cancelDeleteButton = useRef<HTMLButtonElement>(null);
     const restoreActionsFocus = useRef(false);
+    const validImage =
+        imagePosition !== null &&
+        Number.isSafeInteger(imagePosition) &&
+        imagePosition >= 1 &&
+        imagePosition <= card.imageCount;
+
+    useEffect(() => {
+        if (imagePosition !== null && !validImage) {
+            onCloseImage();
+        }
+    }, [imagePosition, validImage, onCloseImage]);
 
     useEffect(() => {
         if (confirming) {
@@ -197,7 +228,13 @@ export function CardDetail({
             {error && <FieldError>{error}</FieldError>}
             <CardCodes codes={card.codes ?? []} />
             {Array.from({ length: card.imageCount }, (_, index) => (
-                <CardImage key={index} card={card} position={index + 1} />
+                <CardImage
+                    key={index}
+                    card={card}
+                    position={index + 1}
+                    disabled={loadingEdit}
+                    onOpen={() => onOpenImage(index + 1)}
+                />
             ))}
             {card.imageCount === 0 && !card.cardNumber && (
                 <p className="text-muted-foreground">No images.</p>
@@ -225,6 +262,14 @@ export function CardDetail({
                     Couldn&apos;t load the barcode. Close this card and try
                     again.
                 </FieldError>
+            )}
+            {validImage && imagePosition !== null && (
+                <ImageViewer
+                    key={imagePosition}
+                    card={card}
+                    position={imagePosition}
+                    onClose={onCloseImage}
+                />
             )}
         </Dialog>
     );

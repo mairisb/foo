@@ -107,6 +107,8 @@ Extracted codes live in cards.codes in PostgreSQL. The optional codes multipart 
 
 ## Editing and deletion
 
+Click a saved card image to view it in the same tab, filling the browser page with the complete image and a close X. Portrait and landscape images fit without cropping or scrolling. Close with X, Escape, or browser/Android Back to return to the same card and scroll position. Forward and refresh restore a valid image view. A load failure keeps the viewer closable; reopen it to retry. No new tab is opened.
+
 Open a card's header menu and choose Edit card to change its name, add or remove images, rotate them left or right, adjust their document corners, or use the up/down buttons to reorder saved and newly selected images together. Changes apply together when you choose Save changes. Cancel discards the draft. Saved images keep their stored bytes unless rotated or straightened; transformed images are re-encoded with the normal image limits. New images use the normal upload validation. Existing numbers and barcodes are preserved.
 
 Multipart uploads use the images field for unrotated files and images:90, images:180, or images:270 for clockwise rotation relative to camera-corrected orientation. Editing optionally includes rotateImages, a JSON array of position/rotation objects referring to original saved positions, with angles 0, 90, 180, or 270. Saved rotations run before removal and reordering in the same transaction. Duplicate, missing, or removed positions and invalid angles are rejected; a failed rotation, upload, or stale edit leaves the card unchanged.

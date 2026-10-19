@@ -169,7 +169,7 @@ test("scanned barcodes and QR codes persist with the card and remain draft until
                 !!(
                     element.compareDocumentPosition(
                         document.querySelector(
-                            'a[aria-label="Open image 1 full size"]',
+                            'button[aria-label="Open image 1 full size"]',
                         )!,
                     ) & Node.DOCUMENT_POSITION_FOLLOWING
                 ),

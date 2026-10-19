@@ -22,6 +22,10 @@ export function Wallet({
     const selected = cards.find((card) => card.id === cardId) ?? null;
     const editing = mode === "edit" ? selected : null;
     const adding = mode === "add";
+    const imagePosition =
+        mode === "card" && navigation.view.includes(":image:")
+            ? Number(navigation.view.split(":")[3])
+            : null;
     const adjustingId =
         navigation.view.match(/:scan:((saved|new)-\d+)(:preview)?$/)?.[1] ??
         null;
@@ -202,6 +206,13 @@ export function Wallet({
                         onClose={() => navigation.close()}
                         onDelete={remove}
                         onEdit={edit}
+                        imagePosition={imagePosition}
+                        onOpenImage={(position) =>
+                            navigation.open(
+                                `card:${selected.id}:image:${position}`,
+                            )
+                        }
+                        onCloseImage={() => navigation.close()}
                     />
                 )}
             </div>
