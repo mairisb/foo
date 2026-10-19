@@ -8,7 +8,7 @@ The interface uses shadcn/ui buttons, inputs, fields, and dialogs with its neutr
 
 Sharing and search are outside this iteration.
 
-Dialogs keep their title visible while content scrolls. Card details have a vertical-ellipsis menu in the header for Edit card and Delete card, with Close in the fixed footer. Creation and editing keep Cancel and Save in the footer; delete confirmation keeps Cancel and Delete there.
+Dialogs keep their title and closing X visible while content scrolls. Card details have a vertical-ellipsis menu immediately left of X for Edit card and Delete card, with no footer. Creation and editing keep Cancel and Save in the footer; delete confirmation keeps Cancel and Delete there. Views with only a closing action, including image-correction preview, omit the footer.
 
 Android and browser Back close an open card and return to the wallet. Back from editing returns to the card and discards unsaved changes; Back from creation discards the new draft. Forward can reopen the view. Saving and deletion keep their dismissal guards while pending.
 
@@ -87,7 +87,7 @@ Each new card accepts any number of JPG, PNG, or WebP images, up to 10 MB each. 
 
 Use the rounded-corner icon beside an image's ordering and rotation buttons to straighten a photographed card using [Scanic](https://marquaye.github.io/scanic/guide/corner-editor). Its modal fits the editor between a fixed header and footer without scrolling or introductory text. Place the four corners yourself by dragging the handles or using the arrow keys on a focused handle. Corner selection is entirely manual.
 
-The undo icon at the header's right restores the default inset outline; the eye icon opens the corrected rectangle in a separate preview modal view. Close in the preview footer, Escape, or browser/Android Back returns to the same corner selection. Cancel and Apply stay in the editor footer. Apply puts the corrected image into the card draft; Cancel, Escape, or browser/Android Back returns to the card form with its draft intact. Save the card to keep an applied correction; canceling the card discards it.
+The undo icon at the header's right restores the default inset outline; the eye icon opens the corrected rectangle in a separate preview modal view. X at the top right, Escape, or browser/Android Back returns to the same corner selection. The preview has no footer. Cancel and Apply stay in the editor footer. Apply puts the corrected image into the card draft; X, Cancel, Escape, or browser/Android Back returns to the card form with its draft intact. Save the card to keep an applied correction; canceling the card discards it.
 
 Scanic loads when the corner tool opens and processes the image in the browser. The editor and extraction API use a canvas capped at 2000px per side, with existing rotation applied before manual adjustment. The corrected JPEG becomes a draft upload. Replacing a saved image uses the existing transactional removal, upload, ordering, and revision checks, with normal server image validation. Extraction and canvas-encoding failures keep the tool available for retry; controls and dialog dismissal are guarded during conversion.
 

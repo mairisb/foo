@@ -31,7 +31,8 @@ async function chooseCardAction(
 async function dismissDialog(page: Page) {
     await page
         .getByRole("dialog")
-        .getByRole("button", { name: /^(Close|Cancel)$/ })
+        .locator('[data-slot="dialog-header"]')
+        .getByRole("button", { name: "Close", exact: true })
         .click();
 }
 
@@ -878,7 +879,7 @@ test("Scanic straightens document corners during upload and editing", async ({
         await expect(
             section.getByRole("button", { name: "Apply", exact: true }),
         ).toBeInViewport({ ratio: 1 });
-        for (const label of ["Reset corners", "Preview"]) {
+        for (const label of ["Reset corners", "Preview", "Close"]) {
             const button = section
                 .locator('[data-slot="dialog-header"]')
                 .getByRole("button", { name: label, exact: true });
@@ -973,9 +974,18 @@ test("Scanic straightens document corners during upload and editing", async ({
     ).toBeInViewport();
     await expect(
         previewDialog
-            .locator('[data-slot="dialog-footer"]')
+            .locator('[data-slot="dialog-header"]')
             .getByRole("button", { name: "Close preview", exact: true }),
     ).toBeInViewport();
+    await expect(
+        previewDialog.locator('[data-slot="dialog-footer"]'),
+    ).toHaveCount(0);
+    await expect(
+        previewDialog.getByRole("button", {
+            name: "Close preview",
+            exact: true,
+        }),
+    ).toBeFocused();
     await expect(
         previewDialog.getByRole("button", { name: "Apply", exact: true }),
     ).toHaveCount(0);
@@ -1085,6 +1095,12 @@ test("Scanic straightens document corners during upload and editing", async ({
         await expect(
             section.getByRole("button", {
                 name: "Cancel corner adjustment",
+                exact: true,
+            }),
+        ).toBeDisabled();
+        await expect(
+            section.getByRole("button", {
+                name: "Close",
                 exact: true,
             }),
         ).toBeDisabled();
@@ -1666,12 +1682,12 @@ test("modal headers, card menu, and footer controls stay visible while scrolling
         const header = dialog.locator('[data-slot="dialog-header"]');
         const body = dialog.locator('[data-slot="dialog-body"]');
         const footer = dialog.locator('[data-slot="dialog-footer"]');
-        const close = footer.getByRole("button", {
-            name: hasActions ? "Close" : "Cancel",
+        const close = header.getByRole("button", {
+            name: "Close",
             exact: true,
         });
         await expect(dialog.locator('[data-slot="dialog-close"]')).toHaveCount(
-            0,
+            1,
         );
         await expect
             .poll(() =>
@@ -1693,9 +1709,11 @@ test("modal headers, card menu, and footer controls stay visible while scrolling
         const headerTop = await header.evaluate(
             (element) => element.getBoundingClientRect().top,
         );
-        const footerTop = await footer.evaluate(
-            (element) => element.getBoundingClientRect().top,
-        );
+        const footerTop = hasActions
+            ? null
+            : await footer.evaluate(
+                  (element) => element.getBoundingClientRect().top,
+              );
         const actions = header.getByRole("button", {
             name: "Card actions",
             exact: true,
@@ -1716,20 +1734,39 @@ test("modal headers, card menu, and footer controls stay visible while scrolling
                 (element) => element.getBoundingClientRect().top,
             ),
         ).toBeCloseTo(headerTop, 1);
-        expect(
-            await footer.evaluate(
-                (element) => element.getBoundingClientRect().top,
-            ),
-        ).toBeCloseTo(footerTop, 1);
+        if (footerTop !== null) {
+            expect(
+                await footer.evaluate(
+                    (element) => element.getBoundingClientRect().top,
+                ),
+            ).toBeCloseTo(footerTop, 1);
+            await expect(
+                footer.getByRole("button", { name: "Cancel", exact: true }),
+            ).toBeInViewport();
+        }
         await expect(close).toBeInViewport();
         expect(
             await close.evaluate(
                 (element) => element.getBoundingClientRect().height,
             ),
         ).toBeGreaterThanOrEqual(44);
+        await expect(close.locator("svg")).toHaveAttribute(
+            "data-material-symbol",
+            "close-rounded",
+        );
         if (hasActions) {
+            await expect(footer).toHaveCount(0);
             await expect(actions).toBeInViewport();
             await expect(actions.locator("svg")).toBeVisible();
+            await expect(actions.locator("svg")).toHaveAttribute(
+                "data-material-symbol",
+                "more-vert-rounded",
+            );
+            const menuBounds = (await actions.boundingBox())!;
+            const closeBounds = (await close.boundingBox())!;
+            expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(
+                closeBounds.x,
+            );
             await expect(actions).toHaveText("");
             expect(
                 await actions.evaluate(
@@ -1742,7 +1779,7 @@ test("modal headers, card menu, and footer controls stay visible while scrolling
                 ),
             ).toBeGreaterThanOrEqual(44);
         } else {
-            await expect(header.getByRole("button")).toHaveCount(0);
+            await expect(header.getByRole("button")).toHaveCount(1);
             await expect(
                 footer.getByRole("button", { name: /^Save/ }),
             ).toBeInViewport();
@@ -1750,7 +1787,9 @@ test("modal headers, card menu, and footer controls stay visible while scrolling
         const bodyBottom = await body.evaluate(
             (element) => element.getBoundingClientRect().bottom,
         );
-        expect(footerTop).toBeGreaterThanOrEqual(bodyBottom - 1);
+        if (footerTop !== null) {
+            expect(footerTop).toBeGreaterThanOrEqual(bodyBottom - 1);
+        }
         expect(
             await page.evaluate(() => document.documentElement.scrollWidth),
         ).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -2467,6 +2506,9 @@ test("failed deletion keeps the card and allows retry", async ({
         ).toBeDisabled();
         await expect(
             page.getByRole("button", { name: "Cancel", exact: true }),
+        ).toBeDisabled();
+        await expect(
+            page.getByRole("button", { name: "Close", exact: true }),
         ).toBeDisabled();
         const view = await page.evaluate(() => window.history.state.fooDialog);
         await page.goBack();

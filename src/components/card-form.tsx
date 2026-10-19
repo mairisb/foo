@@ -455,6 +455,10 @@ export function CardForm({
                     : onClose
             }
             closeDisabled={busy || adjustingBusy || decodingImageId !== null}
+            closeLabel={
+                adjustingImage && previewing ? "Close preview" : "Close"
+            }
+            focusClose={Boolean(adjustingImage && previewing)}
             onPaste={(event) => {
                 const files = Array.from(event.clipboardData.files).filter(
                     (file) => file.type.startsWith("image/"),
@@ -477,7 +481,9 @@ export function CardForm({
             }
             footer={
                 adjustingImage ? (
-                    <div ref={setScanFooter} />
+                    previewing ? undefined : (
+                        <div ref={setScanFooter} />
+                    )
                 ) : (
                     <div className="flex justify-end gap-2">
                         <Button

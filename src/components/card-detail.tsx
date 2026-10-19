@@ -212,18 +212,6 @@ export function CardDetail({
                     </DropdownMenuContent>
                 </DropdownMenu>
             }
-            footer={
-                <div className="flex justify-end">
-                    <Button
-                        variant="outline"
-                        className="h-11"
-                        disabled={loadingEdit}
-                        onClick={onClose}
-                    >
-                        Close
-                    </Button>
-                </div>
-            }
         >
             {error && <FieldError>{error}</FieldError>}
             <CardCodes codes={card.codes ?? []} />

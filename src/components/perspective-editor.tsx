@@ -38,7 +38,6 @@ export function PerspectiveEditor({
     const host = useRef<HTMLDivElement>(null);
     const preview = useRef<HTMLCanvasElement>(null);
     const previewButton = useRef<HTMLButtonElement>(null);
-    const closePreviewButton = useRef<HTMLButtonElement>(null);
     const showingPreview = useRef(previewing);
     const editor = useRef<CornerEditor | null>(null);
     const extract = useRef<((apply: boolean) => Promise<void>) | null>(null);
@@ -48,9 +47,7 @@ export function PerspectiveEditor({
     const [hasPreview, setHasPreview] = useState(false);
 
     useEffect(() => {
-        if (previewing) {
-            closePreviewButton.current?.focus();
-        } else if (showingPreview.current) {
+        if (!previewing && showingPreview.current) {
             previewButton.current?.focus();
         }
         if (previewing || header) {
@@ -328,45 +325,31 @@ export function PerspectiveEditor({
                     header,
                 )}
             {footer &&
+                !previewing &&
                 createPortal(
                     <fieldset
                         disabled={busy}
                         className="flex justify-end gap-2"
                     >
-                        {previewing ? (
-                            <Button
-                                ref={closePreviewButton}
-                                type="button"
-                                variant="outline"
-                                className="h-11"
-                                aria-label="Close preview"
-                                onClick={onClosePreview}
-                            >
-                                Close
-                            </Button>
-                        ) : (
-                            <>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-11"
-                                    onClick={onCancel}
-                                    aria-label="Cancel corner adjustment"
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="button"
-                                    className="h-11"
-                                    disabled={!ready}
-                                    onClick={() => {
-                                        void extract.current?.(true);
-                                    }}
-                                >
-                                    Apply
-                                </Button>
-                            </>
-                        )}
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="h-11"
+                            onClick={onCancel}
+                            aria-label="Cancel corner adjustment"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            className="h-11"
+                            disabled={!ready}
+                            onClick={() => {
+                                void extract.current?.(true);
+                            }}
+                        >
+                            Apply
+                        </Button>
                     </fieldset>,
                     footer,
                 )}

@@ -383,6 +383,9 @@ test("barcode scan failures can retry and pending scans guard the card draft", a
         await expect(
             dialog.getByRole("button", { name: "Save card", exact: true }),
         ).toBeDisabled();
+        await expect(
+            dialog.getByRole("button", { name: "Close", exact: true }),
+        ).toBeDisabled();
         await page.keyboard.press("Escape");
         await page.evaluate(() => history.back());
         await expect(dialog).toHaveAccessibleName("Add card");

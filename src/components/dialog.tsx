@@ -2,6 +2,8 @@
 import { useContext, useLayoutEffect, useRef } from "react";
 import { DialogPendingContext } from "@/lib/dialog-history";
 import { cn } from "cn";
+import { XIcon } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 import {
     Dialog as ShadcnDialog,
     DialogContent,
@@ -16,6 +18,8 @@ export function Dialog({
     children,
     onClose,
     closeDisabled = false,
+    closeLabel = "Close",
+    focusClose = false,
     className,
     bodyClassName,
     onPaste,
@@ -26,6 +30,8 @@ export function Dialog({
     children: React.ReactNode;
     onClose: () => void;
     closeDisabled?: boolean;
+    closeLabel?: string;
+    focusClose?: boolean;
     className?: string;
     bodyClassName?: string;
     onPaste?: React.ClipboardEventHandler<HTMLDivElement>;
@@ -33,6 +39,12 @@ export function Dialog({
     const setPending = useContext(DialogPendingContext);
     const content = useRef<HTMLDivElement>(null);
     const body = useRef<HTMLDivElement>(null);
+    const closeButton = useRef<HTMLButtonElement>(null);
+    useLayoutEffect(() => {
+        if (focusClose && !closeDisabled) {
+            closeButton.current?.focus();
+        }
+    }, [focusClose, closeDisabled]);
     useLayoutEffect(() => {
         if (body.current) {
             body.current.scrollTop = 0;
@@ -67,7 +79,23 @@ export function Dialog({
                         <DialogTitle className="min-w-0 flex-1 py-3 leading-snug break-words">
                             {title}
                         </DialogTitle>
-                        {headerActions}
+                        <div className="flex shrink-0 items-start gap-1">
+                            {headerActions}
+                            <Button
+                                ref={closeButton}
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-11"
+                                data-slot="dialog-close"
+                                aria-label={closeLabel}
+                                title={closeLabel}
+                                disabled={closeDisabled}
+                                onClick={onClose}
+                            >
+                                <XIcon />
+                            </Button>
+                        </div>
                     </div>
                 </DialogHeader>
                 <div
