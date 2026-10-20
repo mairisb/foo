@@ -153,16 +153,7 @@ export function CardCodes({
                     closeLabel="Close code"
                     triggerId={`${id}-code-${codePosition}`}
                     onClose={onCloseCode}
-                    onPrevious={
-                        codePosition > 1
-                            ? () => onNavigateCode(codePosition - 1)
-                            : undefined
-                    }
-                    onNext={
-                        codePosition < codes.length
-                            ? () => onNavigateCode(codePosition + 1)
-                            : undefined
-                    }
+                    onNavigate={onNavigateCode}
                     position={codePosition}
                     count={codes.length}
                     renderItem={(position) => (

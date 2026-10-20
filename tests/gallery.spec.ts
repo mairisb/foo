@@ -165,7 +165,7 @@ test("gallery swipe follows the finger, settles, and respects reduced motion", a
             ),
         )
         .toEqual(["paused"]);
-    await expect(viewer.getByRole("status")).toHaveText("2/2");
+    await expect(viewer.getByRole("status")).toHaveText("1/2");
     await page.goBack();
     await expect(viewer).toHaveCount(0);
     await expect(
@@ -196,6 +196,95 @@ async function createCard(
     expect(result.status()).toBe(201);
     return (await result.json()).card as { id: string };
 }
+
+test("rapid gallery wheel and swipes interrupt animations and retain browser Back", async ({
+    page,
+}) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await register(page.request);
+    const card = await createCard(page, "Rapid gallery");
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Open Rapid gallery", exact: true })
+        .click();
+    const opener = page.getByRole("button", {
+        name: "Open code 1 full size",
+        exact: true,
+    });
+    await opener.click();
+    const viewer = page.getByRole("dialog", {
+        name: /^(Code [12]:|Image [12] of Rapid gallery)/,
+    });
+    const counter = viewer.getByRole("status", { name: /of 4$/ });
+    const track = viewer.locator('[data-slot="gallery-track"]');
+    await expect(
+        viewer.getByRole("button", { name: "Close code", exact: true }),
+    ).toBeFocused();
+    const historyLength = await page.evaluate(() => history.length);
+    // Keep every slide paused: later gestures must work without waiting for it.
+    await viewer.evaluate((element) => {
+        element.addEventListener("pointerup", () => {
+            requestAnimationFrame(() => {
+                element
+                    .querySelector('[data-slot="gallery-track"]')
+                    ?.getAnimations()
+                    .forEach((animation) => animation.pause());
+            });
+        });
+    });
+    async function pausedAt(position: number) {
+        await expect(counter).toHaveText(`${position}/4`);
+        await expect
+            .poll(() =>
+                track.evaluate((element) =>
+                    element
+                        .getAnimations()
+                        .map((animation) => animation.playState),
+                ),
+            )
+            .toEqual(["paused"]);
+    }
+    await swipe(page, "left");
+    await pausedAt(2);
+    await swipe(page, "left");
+    await pausedAt(3);
+    await swipe(page, "right");
+    await pausedAt(2);
+    async function wheel(deltas: number[]) {
+        await viewer.evaluate((element, deltas) => {
+            for (const deltaY of deltas) {
+                element.dispatchEvent(
+                    new WheelEvent("wheel", {
+                        deltaY,
+                        bubbles: true,
+                        cancelable: true,
+                    }),
+                );
+            }
+        }, deltas);
+    }
+    // Same-frame events, tiny deltas, reversal, and bounds have no cooldown.
+    await wheel([0.1, 0.1]);
+    await expect(counter).toHaveText("4/4");
+    await expect
+        .poll(() => track.evaluate((element) => element.getAnimations().length))
+        .toBe(0);
+    await wheel([0, -0.1]);
+    await expect(counter).toHaveText("3/4");
+    await wheel([1, -1, -1]);
+    await expect(counter).toHaveText("2/4");
+    await wheel([-1, -1, -1, 1]);
+    await expect(counter).toHaveText("2/4");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    expect(await page.evaluate(() => history.state.fooDialog)).toBe(
+        `card:${card.id}:code:2`,
+    );
+    await page.goBack();
+    await expect(viewer).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await page.goForward();
+    await expect(counter).toHaveText("2/4");
+});
 
 test("gallery browses codes and images with chevrons, wheel, swipes, and browser Back", async ({
     page,
@@ -310,15 +399,12 @@ test("gallery browses codes and images with chevrons, wheel, swipes, and browser
         await at("image", 1);
         await page.keyboard.press("ArrowLeft");
         await at("code", 2);
-        // Leave the explicit 180ms wheel-gesture window before a new gesture.
-        await page.waitForTimeout(210);
         await page.mouse.move(viewport.width / 2, viewport.height / 2);
         await page.mouse.wheel(0, -120);
         await at("code", 1);
         await page.keyboard.press("ArrowLeft");
         await at("code", 1);
-        await page.waitForTimeout(210);
-        // One continuous wheel burst advances exactly one item.
+        // Every event in one uninterrupted burst advances, stopping at the end.
         await viewer.evaluate((element) => {
             for (let index = 0; index < 5; index++) {
                 element.dispatchEvent(
@@ -330,8 +416,10 @@ test("gallery browses codes and images with chevrons, wheel, swipes, and browser
                 );
             }
         });
-        await at("code", 2);
-        await page.keyboard.press("ArrowLeft");
+        await at("image", 2);
+        for (let index = 0; index < 3; index++) {
+            await page.keyboard.press("ArrowLeft");
+        }
         await at("code", 1);
     }
     await page.screenshot({
@@ -500,7 +588,6 @@ test("long code values scroll without switching items and modified wheel gesture
         element.scrollTop = element.scrollHeight;
     });
     await value.hover();
-    await page.waitForTimeout(210);
     await page.mouse.wheel(0, 120);
     await expect(viewer).toHaveAccessibleName("Code 2: Code128");
     await viewer
@@ -561,6 +648,22 @@ test("draft code gallery keeps creation and editing drafts through browser Back"
     } else {
         await page.keyboard.press("ArrowRight");
     }
+    await expect(
+        page.getByRole("dialog", { name: "Code 2: Code128", exact: true }),
+    ).toBeVisible();
+    await page
+        .getByRole("dialog", { name: "Code 2: Code128", exact: true })
+        .evaluate((element) => {
+            for (const deltaY of [-1, 1, -1, 1]) {
+                element.dispatchEvent(
+                    new WheelEvent("wheel", {
+                        deltaY,
+                        bubbles: true,
+                        cancelable: true,
+                    }),
+                );
+            }
+        });
     await expect(
         page.getByRole("dialog", { name: "Code 2: Code128", exact: true }),
     ).toBeVisible();

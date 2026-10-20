@@ -31,8 +31,7 @@ export function FullScreenViewer({
     triggerId,
     onClose,
     renderItem,
-    onPrevious,
-    onNext,
+    onNavigate,
     position,
     count,
 }: {
@@ -41,8 +40,7 @@ export function FullScreenViewer({
     triggerId: string;
     onClose: () => void;
     renderItem: (position: number) => React.ReactNode;
-    onPrevious?: () => void;
-    onNext?: () => void;
+    onNavigate: (position: number) => void;
     position: number;
     count: number;
 }) {
@@ -53,6 +51,10 @@ export function FullScreenViewer({
     const track = useRef<HTMLDivElement>(null);
     const motion = useRef<Animation | null>(null);
     const offset = useRef(0);
+    const cursor = useRef(position);
+    const pendingOffset = useRef<number | null>(null);
+    const hasPrevious = position > 1;
+    const hasNext = position < count;
     const [swiping, setSwiping] = useState(false);
     const gesture = useRef<{
         id: number;
@@ -64,6 +66,7 @@ export function FullScreenViewer({
     function resetSwipe() {
         motion.current?.cancel();
         motion.current = null;
+        pendingOffset.current = null;
         gesture.current = null;
         offset.current = 0;
         if (track.current) {
@@ -73,31 +76,28 @@ export function FullScreenViewer({
     }
 
     function navigate(direction: number) {
+        const next = Math.max(
+            1,
+            Math.min(count, cursor.current + Math.sign(direction)),
+        );
         resetSwipe();
-        if (direction > 0) {
-            onNext?.();
-        } else {
-            onPrevious?.();
+        if (next !== cursor.current) {
+            cursor.current = next;
+            onNavigate(next);
         }
     }
 
-    function settleSwipe(direction: number) {
+    function animateSwipe(from: number, to: number) {
         const element = track.current;
-        const next = direction > 0 ? onNext : direction < 0 ? onPrevious : null;
-        const reduced = window.matchMedia(
-            "(prefers-reduced-motion: reduce)",
-        ).matches;
-        if (!element || reduced || (!next && offset.current === 0)) {
-            resetSwipe();
-            next?.();
+        if (!element) {
             return;
         }
         motion.current?.cancel();
-        const destination = next ? -direction * element.clientWidth : 0;
+        element.style.transform = `translate3d(${from}px, 0, 0)`;
         const animation = element.animate(
             [
-                { transform: `translate3d(${offset.current}px, 0, 0)` },
-                { transform: `translate3d(${destination}px, 0, 0)` },
+                { transform: `translate3d(${from}px, 0, 0)` },
+                { transform: `translate3d(${to}px, 0, 0)` },
             ],
             {
                 duration: 220,
@@ -108,13 +108,51 @@ export function FullScreenViewer({
         motion.current = animation;
         void animation.finished.then(
             () => {
-                resetSwipe();
-                next?.();
+                if (motion.current === animation) {
+                    resetSwipe();
+                }
             },
             () => {},
         );
     }
 
+    function settleSwipe(direction: number) {
+        const element = track.current;
+        const next = Math.max(1, Math.min(count, cursor.current + direction));
+        const reduced = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+        ).matches;
+        if (!element || reduced) {
+            navigate(direction);
+            return;
+        }
+        if (next === cursor.current) {
+            if (offset.current === 0) {
+                resetSwipe();
+            } else {
+                animateSwipe(offset.current, 0);
+            }
+            return;
+        }
+        motion.current?.cancel();
+        motion.current = null;
+        pendingOffset.current =
+            offset.current + direction * element.clientWidth;
+        cursor.current = next;
+        onNavigate(next);
+    }
+
+    const startPendingSwipe = useEffectEvent(() => {
+        const from = pendingOffset.current;
+        pendingOffset.current = null;
+        if (from !== null) {
+            animateSwipe(from, 0);
+        }
+    });
+    useLayoutEffect(() => {
+        cursor.current = position;
+        startPendingSwipe();
+    }, [position]);
     useEffect(() => () => motion.current?.cancel(), []);
     useLayoutEffect(() => {
         if (content && !content.contains(document.activeElement)) {
@@ -130,9 +168,6 @@ export function FullScreenViewer({
         if (!element) {
             return;
         }
-        let total = 0;
-        let changed = false;
-        let idle = 0;
         function wheel(event: WheelEvent) {
             if (
                 event.ctrlKey ||
@@ -143,34 +178,17 @@ export function FullScreenViewer({
                 return;
             }
             event.preventDefault();
-            clearTimeout(idle);
-            idle = window.setTimeout(() => {
-                total = 0;
-                changed = false;
-            }, 180);
-            if (changed) {
-                return;
-            }
             const delta =
                 Math.abs(event.deltaX) > Math.abs(event.deltaY)
                     ? event.deltaX
                     : event.deltaY;
-            const scale =
-                event.deltaMode === 1
-                    ? 16
-                    : event.deltaMode === 2
-                      ? element!.clientHeight
-                      : 1;
-            total += delta * scale;
-            if (Math.abs(total) >= 40) {
-                changed = true;
-                wheelNavigate(total);
+            if (Number.isFinite(delta) && delta !== 0) {
+                wheelNavigate(delta);
             }
         }
         element.addEventListener("wheel", wheel, { passive: false });
         return () => {
             element.removeEventListener("wheel", wheel);
-            clearTimeout(idle);
         };
     }, [content]);
 
@@ -274,7 +292,8 @@ export function FullScreenViewer({
                     ) {
                         return;
                     }
-                    const available = dx < 0 ? onNext : onPrevious;
+                    const available =
+                        dx < 0 ? cursor.current < count : cursor.current > 1;
                     offset.current =
                         Math.max(
                             -event.currentTarget.clientWidth,
@@ -341,7 +360,7 @@ export function FullScreenViewer({
                 >
                     {positionLabel}
                 </span>
-                {(onPrevious || onNext) && (
+                {count > 1 && (
                     <>
                         <Button
                             type="button"
@@ -349,7 +368,7 @@ export function FullScreenViewer({
                             size="icon"
                             className="full-screen-navigation absolute top-1/2 left-[max(0.75rem,env(safe-area-inset-left))] size-11 -translate-y-1/2 border-white/30 bg-black/70 text-white hover:bg-black hover:text-white focus-visible:ring-white"
                             aria-label="Previous item"
-                            disabled={!onPrevious}
+                            disabled={!hasPrevious}
                             focusableWhenDisabled
                             onClick={() => navigate(-1)}
                         >
@@ -361,7 +380,7 @@ export function FullScreenViewer({
                             size="icon"
                             className="full-screen-navigation absolute top-1/2 right-[max(0.75rem,env(safe-area-inset-right))] size-11 -translate-y-1/2 border-white/30 bg-black/70 text-white hover:bg-black hover:text-white focus-visible:ring-white"
                             aria-label="Next item"
-                            disabled={!onNext}
+                            disabled={!hasNext}
                             focusableWhenDisabled
                             onClick={() => navigate(1)}
                         >

@@ -41,8 +41,7 @@ export function CardMediaViewer({
             closeLabel={item.kind === "code" ? "Close code" : "Close image"}
             triggerId={`card-${card.id}-${item.kind}-${item.position}`}
             onClose={onClose}
-            onPrevious={index > 0 ? () => navigate(index - 1) : undefined}
-            onNext={index < count - 1 ? () => navigate(index + 1) : undefined}
+            onNavigate={(position) => navigate(position - 1)}
             position={index + 1}
             count={count}
             renderItem={(position) =>
