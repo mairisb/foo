@@ -26,6 +26,9 @@ export function Wallet({
         mode === "card" && navigation.view.includes(":image:")
             ? Number(navigation.view.split(":")[3])
             : null;
+    const codePosition = navigation.view.includes(":code:")
+        ? Number(navigation.view.split(":").at(-1))
+        : null;
     const adjustingId =
         navigation.view.match(/:scan:((saved|new)-\d+)(:preview)?$/)?.[1] ??
         null;
@@ -171,6 +174,11 @@ export function Wallet({
                 </main>
                 {adding && (
                     <CardForm
+                        codePosition={codePosition}
+                        onOpenCode={(position) =>
+                            navigation.open(`add:code:${position}`)
+                        }
+                        onCloseCode={closeDialog}
                         adjustingId={adjustingId}
                         previewing={previewing}
                         onOpenPreview={openPreview}
@@ -187,6 +195,13 @@ export function Wallet({
                     <CardForm
                         key={`${editing.id}:${editing.revision}`}
                         card={editing}
+                        codePosition={codePosition}
+                        onOpenCode={(position) =>
+                            navigation.open(
+                                `edit:${editing.id}:code:${position}`,
+                            )
+                        }
+                        onCloseCode={closeDialog}
                         adjustingId={adjustingId}
                         previewing={previewing}
                         onOpenPreview={openPreview}
@@ -203,6 +218,13 @@ export function Wallet({
                     <CardDetail
                         key={`${selected.id}:${selected.revision}`}
                         card={selected}
+                        codePosition={codePosition}
+                        onOpenCode={(position) =>
+                            navigation.open(
+                                `card:${selected.id}:code:${position}`,
+                            )
+                        }
+                        onCloseCode={closeDialog}
                         onClose={() => navigation.close()}
                         onDelete={remove}
                         onEdit={edit}

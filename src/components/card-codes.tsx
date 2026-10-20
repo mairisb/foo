@@ -1,11 +1,28 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { codeKey, type CardCode } from "@/lib/card-codes";
 import { renderCardCode } from "@/lib/barcode-scanner";
+import { FullScreenViewer } from "./full-screen-viewer";
 
-function CodeImage({ code, index }: { code: CardCode; index: number }) {
+function CodeCard({
+    code,
+    index,
+    triggerId,
+    open,
+    disabled,
+    onOpen,
+    onClose,
+}: {
+    code: CardCode;
+    index: number;
+    triggerId: string;
+    open: boolean;
+    disabled: boolean;
+    onOpen: () => void;
+    onClose: () => void;
+}) {
     const [src, setSrc] = useState("");
     const [failed, setFailed] = useState(false);
     useEffect(() => {
@@ -27,13 +44,76 @@ function CodeImage({ code, index }: { code: CardCode; index: number }) {
     }, [code]);
     return (
         <>
-            {src && (
-                <img
-                    src={src}
-                    alt={`Code ${index + 1}: ${code.format}`}
-                    className="max-h-48 max-w-full bg-white object-contain"
-                    onError={() => setFailed(true)}
-                />
+            <Button
+                id={triggerId}
+                type="button"
+                variant="outline"
+                className="flex aspect-[8560/5398] h-auto min-h-0 w-full min-w-0 flex-col items-start gap-3 overflow-hidden rounded-lg border p-4 text-left font-normal whitespace-normal"
+                aria-label={`Open code ${index + 1} full size`}
+                disabled={disabled}
+                onClick={onOpen}
+            >
+                {src ? (
+                    <img
+                        src={src}
+                        alt={`Code ${index + 1}: ${code.format}`}
+                        className="min-h-0 w-full flex-1 bg-white object-contain"
+                        onError={() => setFailed(true)}
+                    />
+                ) : (
+                    <span aria-hidden="true" className="min-h-0 flex-1" />
+                )}
+                <span className="shrink-0 text-sm text-muted-foreground">
+                    {code.format}
+                </span>
+                <code className="max-h-1/4 max-w-full shrink-0 overflow-hidden text-sm break-all whitespace-pre-wrap">
+                    {code.text}
+                </code>
+            </Button>
+            {open && (
+                <FullScreenViewer
+                    title={`Code ${index + 1}: ${code.format}`}
+                    closeLabel="Close code"
+                    triggerId={triggerId}
+                    onClose={onClose}
+                >
+                    <div className="flex h-full w-full items-center justify-center [container-type:size]">
+                        <div
+                            data-slot="full-screen-code-card"
+                            className="flex aspect-[8560/5398] w-full max-w-[calc(100cqh*8560/5398)] min-h-0 flex-col gap-3 rounded-lg border bg-white p-4 text-black"
+                        >
+                            {failed ? (
+                                <p
+                                    role="alert"
+                                    className="flex min-h-0 flex-1 items-center justify-center text-center"
+                                >
+                                    Couldn&apos;t display this code. Close and
+                                    reopen the card to retry.
+                                </p>
+                            ) : src ? (
+                                <img
+                                    src={src}
+                                    alt={`Code ${index + 1}: ${code.format}`}
+                                    className="min-h-0 w-full flex-1 object-contain"
+                                    onError={() => setFailed(true)}
+                                />
+                            ) : (
+                                <p
+                                    role="status"
+                                    className="flex min-h-0 flex-1 items-center justify-center"
+                                >
+                                    Loading code...
+                                </p>
+                            )}
+                            <p className="shrink-0 text-sm text-muted-foreground">
+                                {code.format}
+                            </p>
+                            <code className="max-h-1/4 shrink-0 overflow-auto text-sm break-all whitespace-pre-wrap">
+                                {code.text}
+                            </code>
+                        </div>
+                    </div>
+                </FullScreenViewer>
             )}
             {failed && (
                 <FieldError>
@@ -49,11 +129,28 @@ export function CardCodes({
     codes,
     onRemove,
     disabled = false,
+    codePosition,
+    onOpenCode,
+    onCloseCode,
 }: {
     codes: CardCode[];
     onRemove?: (index: number) => void;
     disabled?: boolean;
+    codePosition: number | null;
+    onOpenCode: (position: number) => void;
+    onCloseCode: () => void;
 }) {
+    const id = useId();
+    useEffect(() => {
+        if (
+            codePosition !== null &&
+            (!Number.isSafeInteger(codePosition) ||
+                codePosition < 1 ||
+                codePosition > codes.length)
+        ) {
+            onCloseCode();
+        }
+    }, [codePosition, codes.length, onCloseCode]);
     if (codes.length === 0) {
         return null;
     }
@@ -62,15 +159,17 @@ export function CardCodes({
             {codes.map((code, index) => (
                 <div
                     key={codeKey(code)}
-                    className="grid min-w-0 justify-items-start gap-2 rounded-lg border p-3"
+                    className="grid min-w-0 justify-items-start gap-2"
                 >
-                    <CodeImage code={code} index={index} />
-                    <p className="text-sm text-muted-foreground">
-                        {code.format}
-                    </p>
-                    <code className="max-w-full text-sm break-all whitespace-pre-wrap">
-                        {code.text}
-                    </code>
+                    <CodeCard
+                        code={code}
+                        index={index}
+                        triggerId={`${id}-code-${index + 1}`}
+                        open={codePosition === index + 1}
+                        disabled={disabled}
+                        onOpen={() => onOpenCode(index + 1)}
+                        onClose={onCloseCode}
+                    />
                     {onRemove && (
                         <Button
                             type="button"

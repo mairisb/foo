@@ -113,6 +113,9 @@ export function CardForm({
     onClosePreview,
     onAdjustImage,
     onCloseAdjustment,
+    codePosition,
+    onOpenCode,
+    onCloseCode,
 }: {
     card?: Card;
     onSave: (card: Card) => void;
@@ -123,6 +126,9 @@ export function CardForm({
     onClosePreview: () => void;
     onAdjustImage: (id: string) => void;
     onCloseAdjustment: () => void;
+    codePosition: number | null;
+    onOpenCode: (position: number) => void;
+    onCloseCode: () => void;
 }) {
     const [busy, setBusy] = useState(false);
     const [codes, setCodes] = useState<CardCode[]>(card?.codes ?? []);
@@ -533,6 +539,9 @@ export function CardForm({
                     <CardCodes
                         codes={codes}
                         disabled={controlsDisabled}
+                        codePosition={codePosition}
+                        onOpenCode={onOpenCode}
+                        onCloseCode={onCloseCode}
                         onRemove={(index) =>
                             setCodes((current) =>
                                 current.filter(

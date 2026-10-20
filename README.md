@@ -105,6 +105,8 @@ Decoding and symbol generation use zxing-wasm in the browser, with the matching 
 
 Extracted codes live in cards.codes in PostgreSQL. The optional codes multipart field is a JSON array of format, text, bytes (base64 raw payload), and gs1 objects, limited to 64 unique codes and 4 MiB of form metadata. Values and payloads are bounded and validated. Creation defaults to no codes; edits that omit the field preserve existing codes, and an empty array removes all extracted codes. Code changes use the same transaction, revision, session, and origin checks as card/image edits.
 
+Click anywhere on an extracted code card, including its format and value, to open it in the same tab in a full-page view. Code cards keep a horizontal credit-card ratio (about 1.586:1) both inside the card modal and when expanded. The clickable card stays full width with a subtle border before opening. The expanded card is centered and sized to fit the screen without added outer spacing, like images. The symbol fits without cropping, with its format and value below it. X, Escape, or browser/Android Back returns to the same card or unsaved draft and restores focus. Forward reopens the view; refresh restores saved codes. Code cards also open during creation and editing without saving the draft. Remove code stays a separate action.
+
 ## Editing and deletion
 
 Click a saved card image to view it in the same tab, filling the browser page with the complete image and a close X. Portrait and landscape images fit without cropping or scrolling. Close with X, Escape, or browser/Android Back to return to the same card and scroll position. Forward and refresh restore a valid image view. A load failure keeps the viewer closable; reopen it to retry. No new tab is opened.

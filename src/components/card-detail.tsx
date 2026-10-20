@@ -65,6 +65,9 @@ export function CardDetail({
     imagePosition,
     onOpenImage,
     onCloseImage,
+    codePosition,
+    onOpenCode,
+    onCloseCode,
 }: {
     card: Card;
     onClose: () => void;
@@ -73,6 +76,9 @@ export function CardDetail({
     imagePosition: number | null;
     onOpenImage: (position: number) => void;
     onCloseImage: () => void;
+    codePosition: number | null;
+    onOpenCode: (position: number) => void;
+    onCloseCode: () => void;
 }) {
     const [barcodeFailed, setBarcodeFailed] = useState(false);
     const [confirming, setConfirming] = useState(false);
@@ -214,7 +220,13 @@ export function CardDetail({
             }
         >
             {error && <FieldError>{error}</FieldError>}
-            <CardCodes codes={card.codes ?? []} />
+            <CardCodes
+                codes={card.codes ?? []}
+                disabled={loadingEdit}
+                codePosition={codePosition}
+                onOpenCode={onOpenCode}
+                onCloseCode={onCloseCode}
+            />
             {Array.from({ length: card.imageCount }, (_, index) => (
                 <CardImage
                     key={index}

@@ -5,6 +5,7 @@ import { createContext, useState, useSyncExternalStore } from "react";
 type DialogView =
     | ""
     | "add"
+    | `add:code:${number}`
     | `card:${string}`
     | `edit:${string}`
     | `add:scan:${string}`
@@ -21,6 +22,7 @@ function readView(): DialogView {
         (view === "add" ||
             /^(card|edit):[\da-f-]{36}$/i.test(view) ||
             /^card:[\da-f-]{36}:image:[1-9]\d*$/i.test(view) ||
+            /^(add|(?:card|edit):[\da-f-]{36}):code:[1-9]\d*$/i.test(view) ||
             /^(add|edit:[\da-f-]{36}):scan:(new-\d+|saved-[1-9]\d*)(:preview)?$/i.test(
                 view,
             ))
