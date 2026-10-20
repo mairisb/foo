@@ -181,7 +181,7 @@ export function CodeViewerContent({
         <div className="flex h-full w-full items-center justify-center [container-type:size]">
             <div
                 data-slot="full-screen-code-card"
-                className="flex aspect-[8560/5398] w-full max-w-[calc(100cqh*8560/5398)] min-h-0 flex-col gap-3 rounded-lg border bg-white p-4 text-black"
+                className="flex aspect-[8560/5398] w-full max-w-[calc(100cqh*8560/5398)] min-h-0 flex-col gap-3 rounded-none border bg-white p-4 text-black"
             >
                 {failed ? (
                     <p
