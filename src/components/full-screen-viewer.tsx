@@ -33,7 +33,8 @@ export function FullScreenViewer({
     children,
     onPrevious,
     onNext,
-    positionLabel,
+    position,
+    count,
 }: {
     title: string;
     closeLabel: string;
@@ -42,8 +43,10 @@ export function FullScreenViewer({
     children: React.ReactNode;
     onPrevious?: () => void;
     onNext?: () => void;
-    positionLabel?: string;
+    position: number;
+    count: number;
 }) {
+    const positionLabel = `${position}/${count}`;
     const closeButton = useRef<HTMLButtonElement>(null);
     const [content, setContent] = useState<HTMLDivElement | null>(null);
     const returnFocusId = useRef(triggerId);
@@ -216,7 +219,12 @@ export function FullScreenViewer({
             >
                 <DialogTitle className="sr-only">{title}</DialogTitle>
                 {children}
-                <span className="sr-only" role="status" aria-live="polite">
+                <span
+                    className="pointer-events-none absolute top-[max(0.75rem,env(safe-area-inset-top))] left-1/2 flex h-11 -translate-x-1/2 items-center rounded-lg bg-black/70 px-3 text-sm text-white tabular-nums"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`${position} of ${count}`}
+                >
                     {positionLabel}
                 </span>
                 {(onPrevious || onNext) && (

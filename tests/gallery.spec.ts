@@ -137,7 +137,7 @@ test("gallery browses codes and images with chevrons, wheel, swipes, and browser
             )
             .toBe(true);
         await expect(viewer.getByRole("status")).toHaveText(
-            `${kind === "code" ? position : position + 2} of 4`,
+            `${kind === "code" ? position : position + 2}/4`,
         );
         expect(await page.evaluate(() => history.state.fooDialog)).toBe(
             `card:${card.id}:${kind}:${position}`,

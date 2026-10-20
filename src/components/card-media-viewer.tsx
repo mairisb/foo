@@ -43,7 +43,8 @@ export function CardMediaViewer({
             onClose={onClose}
             onPrevious={index > 0 ? () => navigate(index - 1) : undefined}
             onNext={index < count - 1 ? () => navigate(index + 1) : undefined}
-            positionLabel={`${index + 1} of ${count}`}
+            position={index + 1}
+            count={count}
         >
             {item.kind === "code" ? (
                 <CodeViewerContent

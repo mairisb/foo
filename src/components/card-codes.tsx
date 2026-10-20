@@ -163,7 +163,8 @@ export function CardCodes({
                             ? () => onNavigateCode(codePosition + 1)
                             : undefined
                     }
-                    positionLabel={`${codePosition} of ${codes.length}`}
+                    position={codePosition}
+                    count={codes.length}
                 >
                     <CodeViewerContent
                         key={codeKey(selectedCode)}
