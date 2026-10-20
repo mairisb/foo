@@ -1,6 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import bwipjs from "bwip-js/node";
-import { cardForm, cleanUp, origin, register, syntheticImage } from "./helpers";
+import sharp from "sharp";
+import {
+    cardForm,
+    cleanUp,
+    origin,
+    register,
+    rotationImage,
+    syntheticImage,
+} from "./helpers";
 
 test.afterAll(cleanUp);
 
@@ -196,6 +204,248 @@ async function createCard(
     expect(result.status()).toBe(201);
     return (await result.json()).card as { id: string };
 }
+
+test("gallery rotation fits images, stays within the open gallery, and resets after browser Back", async ({
+    page,
+    isMobile,
+}, testInfo) => {
+    await register(page.request);
+    const source = await rotationImage();
+    const form = cardForm("Temporary rotation", [
+        source,
+        {
+            ...source,
+            name: "portrait.png",
+            buffer: await sharp(source.buffer)
+                .resize(160, 480, { fit: "fill" })
+                .png()
+                .toBuffer(),
+        },
+    ]);
+    form.set("codes", JSON.stringify(codes.slice(0, 1)));
+    const created = await page.request.post("/api/cards", {
+        headers: { origin },
+        multipart: form,
+    });
+    expect(created.status()).toBe(201);
+    const { card } = await created.json();
+    const urls = [1, 2].map(
+        (position) =>
+            `/api/cards/${card.id}/images/${position}?v=${card.revision}`,
+    );
+    const originalBytes = await Promise.all(
+        urls.map(async (url) => (await page.request.get(url)).body()),
+    );
+    const writes: string[] = [];
+    page.on("request", (request) => {
+        if (
+            new URL(request.url()).pathname.startsWith("/api/cards") &&
+            request.method() !== "GET"
+        ) {
+            writes.push(request.method());
+        }
+    });
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Open Temporary rotation", exact: true })
+        .click();
+    const codeOpener = page.getByRole("button", {
+        name: "Open code 1 full size",
+        exact: true,
+    });
+    await codeOpener.click();
+    const viewer = page.getByRole("dialog", {
+        name: /^(Code 1:|Image [12] of Temporary rotation)/,
+    });
+    const rotate = viewer.getByRole("button", {
+        name: "Rotate image clockwise",
+        exact: true,
+    });
+    await expect(rotate).toHaveCount(0);
+    await page.keyboard.press("ArrowRight");
+    await expect(rotate).toBeVisible();
+    const box = (await rotate.boundingBox())!;
+    expect(box.x).toBeLessThan(30);
+    expect(box.y).toBeLessThan(30);
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    await expect(rotate.locator("svg")).toHaveAttribute(
+        "data-material-symbol",
+        "rotate-right-rounded",
+    );
+    const historyLength = await page.evaluate(() => history.length);
+    async function fitted(
+        position: number,
+        rotation: 0 | 90 | 180 | 270,
+        capture?: string,
+    ) {
+        await expect(viewer).toHaveAccessibleName(
+            `Image ${position} of Temporary rotation`,
+        );
+        await expect
+            .poll(() =>
+                viewer
+                    .locator('[data-slot="gallery-track"]')
+                    .evaluate((element) => element.getAnimations().length),
+            )
+            .toBe(0);
+        const image = viewer.getByRole("img");
+        await expect
+            .poll(() =>
+                image.evaluate(
+                    (element: HTMLImageElement) =>
+                        element.complete && element.naturalWidth > 0,
+                ),
+            )
+            .toBe(true);
+        const sideways = rotation === 90 || rotation === 270;
+        const geometry = await image.evaluate(
+            (image: HTMLImageElement, sideways) => {
+                const rect = image.getBoundingClientRect();
+                const width = sideways
+                    ? image.naturalHeight
+                    : image.naturalWidth;
+                const height = sideways
+                    ? image.naturalWidth
+                    : image.naturalHeight;
+                const scale = Math.min(
+                    innerWidth / width,
+                    innerHeight / height,
+                );
+                const viewer = image.closest('[role="dialog"]')!;
+                return {
+                    rect: {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    },
+                    viewport: { width: innerWidth, height: innerHeight },
+                    width: Math.floor(width * scale),
+                    height: Math.floor(height * scale),
+                    left: Math.round((innerWidth - width * scale) / 2),
+                    top: Math.round((innerHeight - height * scale) / 2),
+                    overflow:
+                        viewer.scrollWidth > viewer.clientWidth ||
+                        viewer.scrollHeight > viewer.clientHeight,
+                };
+            },
+            sideways,
+        );
+        expect(geometry.rect.x).toBeCloseTo(0, 0);
+        expect(geometry.rect.y).toBeCloseTo(0, 0);
+        expect(geometry.rect.width).toBeCloseTo(geometry.viewport.width, 0);
+        expect(geometry.rect.height).toBeCloseTo(geometry.viewport.height, 0);
+        expect(geometry.overflow).toBe(false);
+        const screenshot = await page.screenshot({
+            scale: "css",
+            ...(capture ? { path: testInfo.outputPath(capture) } : {}),
+        });
+        const { data, info } = await sharp(screenshot)
+            .extract({
+                left: geometry.left,
+                top: geometry.top,
+                width: geometry.width,
+                height: geometry.height,
+            })
+            .removeAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+        const red = [240, 32, 32];
+        const green = [32, 192, 32];
+        const blue = [32, 32, 240];
+        const yellow = [224, 224, 32];
+        const colors = {
+            0: [red, green, blue, yellow],
+            90: [blue, red, yellow, green],
+            180: [yellow, blue, green, red],
+            270: [green, yellow, red, blue],
+        }[rotation];
+        for (const [index, [x, y]] of [
+            [0.08, 0.08],
+            [0.92, 0.08],
+            [0.08, 0.92],
+            [0.92, 0.92],
+        ].entries()) {
+            const offset =
+                (Math.floor(y * info.height) * info.width +
+                    Math.floor(x * info.width)) *
+                info.channels;
+            for (let channel = 0; channel < 3; channel++) {
+                expect(
+                    Math.abs(data[offset + channel] - colors[index][channel]),
+                ).toBeLessThan(25);
+            }
+        }
+    }
+    await fitted(1, 0);
+    for (const rotation of [90, 180, 270, 0] as const) {
+        await rotate.click();
+        await fitted(1, rotation);
+    }
+    await rotate.click();
+    await fitted(1, 90, "gallery-rotated.png");
+    if (isMobile) {
+        await swipe(page, "left");
+    } else {
+        await page.keyboard.press("ArrowRight");
+    }
+    await fitted(2, 0);
+    await rotate.click();
+    await rotate.click();
+    await fitted(2, 180);
+    await page.keyboard.press("ArrowLeft");
+    await fitted(1, 90);
+    await page.keyboard.press("ArrowLeft");
+    await expect(viewer).toHaveAccessibleName("Code 1: QRCode");
+    await expect(rotate).toHaveCount(0);
+    await page.keyboard.press("ArrowRight");
+    await fitted(1, 90);
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize(
+        viewport.width > viewport.height
+            ? { width: 390, height: 844 }
+            : { width: 844, height: 390 },
+    );
+    await fitted(1, 90, "gallery-rotated-resized.png");
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    expect(await page.evaluate(() => history.state.fooDialog)).toBe(
+        `card:${card.id}:image:1`,
+    );
+    await viewer
+        .getByRole("button", { name: "Close image", exact: true })
+        .click();
+    await expect(codeOpener).toBeFocused();
+    const imageOpener = page.getByRole("button", {
+        name: "Open image 1 full size",
+        exact: true,
+    });
+    await imageOpener.click();
+    await fitted(1, 0);
+    await rotate.click();
+    await page.keyboard.press("Escape");
+    await imageOpener.click();
+    await fitted(1, 0);
+    await rotate.click();
+    await page.goBack();
+    await expect(imageOpener).toBeFocused();
+    await page.goForward();
+    await fitted(1, 0);
+    await rotate.click();
+    await page.reload();
+    await fitted(1, 0);
+    expect(writes).toEqual([]);
+    expect(
+        (await (await page.request.get(`/api/cards/${card.id}`)).json()).card
+            .revision,
+    ).toBe(card.revision);
+    for (const [index, url] of urls.entries()) {
+        expect(await (await page.request.get(url)).body()).toEqual(
+            originalBytes[index],
+        );
+    }
+});
 
 test("rapid gallery wheel and swipes interrupt animations and retain browser Back", async ({
     page,

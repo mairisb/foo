@@ -7,7 +7,7 @@ import {
     useRef,
     useState,
 } from "react";
-import { ChevronRightIcon, X } from "@/components/icons";
+import { ChevronRightIcon, RotateCw, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
@@ -32,6 +32,7 @@ export function FullScreenViewer({
     onClose,
     renderItem,
     onNavigate,
+    onRotate,
     position,
     count,
 }: {
@@ -41,6 +42,7 @@ export function FullScreenViewer({
     onClose: () => void;
     renderItem: (position: number) => React.ReactNode;
     onNavigate: (position: number) => void;
+    onRotate?: () => void;
     position: number;
     count: number;
 }) {
@@ -370,6 +372,22 @@ export function FullScreenViewer({
                         </div>
                     ))}
                 </div>
+                {onRotate && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] size-11 border-white/30 bg-black/70 text-white hover:bg-black hover:text-white focus-visible:ring-white"
+                        aria-label="Rotate image clockwise"
+                        title="Rotate image clockwise"
+                        onClick={() => {
+                            resetSwipe();
+                            onRotate();
+                        }}
+                    >
+                        <RotateCw />
+                    </Button>
+                )}
                 <span
                     className="pointer-events-none absolute top-[max(0.75rem,env(safe-area-inset-top))] left-1/2 flex h-11 -translate-x-1/2 items-center rounded-lg bg-black/70 px-3 text-sm text-white tabular-nums"
                     role="status"
