@@ -16,6 +16,8 @@ const codes = [
 async function swipe(
     page: Page,
     direction: "left" | "right" | "vertical" | "short",
+    duringDrag?: () => Promise<void>,
+    end: "touchEnd" | "touchCancel" = "touchEnd",
 ) {
     const touch = await page.context().newCDPSession(page);
     const viewport = page.viewportSize()!;
@@ -50,14 +52,129 @@ async function swipe(
                 ],
             });
         }
+        await duringDrag?.();
         await touch.send("Input.dispatchTouchEvent", {
-            type: "touchEnd",
+            type: end,
             touchPoints: [],
         });
     } finally {
         await touch.detach();
     }
 }
+
+test("gallery swipe follows the finger, settles, and respects reduced motion", async ({
+    page,
+}, testInfo) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await register(page.request);
+    await createCard(page, "Animated gallery", true, []);
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Open Animated gallery", exact: true })
+        .click();
+    await page
+        .getByRole("button", { name: "Open image 1 full size", exact: true })
+        .click();
+    const viewer = page.getByRole("dialog", {
+        name: /^Image [12] of Animated gallery$/,
+    });
+    const track = viewer.locator('[data-slot="gallery-track"]');
+    const close = viewer.getByRole("button", {
+        name: "Close image",
+        exact: true,
+    });
+    await expect(close).toBeFocused();
+    const closeBox = await close.boundingBox();
+    const width = page.viewportSize()!.width;
+    async function settled(position: number) {
+        await expect(viewer.getByRole("status")).toHaveText(`${position}/2`);
+        await expect
+            .poll(() =>
+                track.evaluate((element) =>
+                    Math.round(element.getBoundingClientRect().x),
+                ),
+            )
+            .toBe(0);
+        await expect(track.locator('[data-slot="gallery-slide"]')).toHaveCount(
+            1,
+        );
+        await expect
+            .poll(() =>
+                track.evaluate((element) => element.getAnimations().length),
+            )
+            .toBe(0);
+    }
+    await swipe(page, "left", async () => {
+        await expect
+            .poll(async () => (await track.boundingBox())!.x)
+            .toBeCloseTo(-width / 2, 0);
+        await expect(track.locator('[data-slot="gallery-slide"]')).toHaveCount(
+            2,
+        );
+        await expect(viewer.getByRole("img")).toHaveCount(1);
+        expect(await close.boundingBox()).toEqual(closeBox);
+        await expect(viewer.getByRole("status")).toHaveText("1/2");
+        await page.screenshot({
+            path: testInfo.outputPath("gallery-mid-swipe.png"),
+            scale: "css",
+        });
+    });
+    await settled(2);
+    // Dragging beyond an end gives resistance and returns to the current item.
+    await swipe(page, "left", async () => {
+        expect(Math.abs((await track.boundingBox())!.x)).toBeLessThan(
+            width / 4,
+        );
+    });
+    await settled(2);
+    await swipe(page, "right");
+    await settled(1);
+    await swipe(page, "short");
+    await settled(1);
+    await swipe(page, "left", undefined, "touchCancel");
+    await settled(1);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await swipe(page, "left", async () => {
+        expect((await track.boundingBox())!.x).toBe(0);
+        await expect(track.locator('[data-slot="gallery-slide"]')).toHaveCount(
+            1,
+        );
+    });
+    await settled(2);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    // Hold the release animation so Back is exercised during settling.
+    await viewer.evaluate((element) => {
+        element.addEventListener(
+            "pointerup",
+            () => {
+                requestAnimationFrame(() => {
+                    element
+                        .querySelector('[data-slot="gallery-track"]')
+                        ?.getAnimations()
+                        .forEach((animation) => animation.pause());
+                });
+            },
+            { once: true },
+        );
+    });
+    await swipe(page, "right");
+    await expect
+        .poll(() =>
+            track.evaluate((element) =>
+                element.getAnimations().map((animation) => animation.playState),
+            ),
+        )
+        .toEqual(["paused"]);
+    await expect(viewer.getByRole("status")).toHaveText("2/2");
+    await page.goBack();
+    await expect(viewer).toHaveCount(0);
+    await expect(
+        page.getByRole("button", {
+            name: "Open image 1 full size",
+            exact: true,
+        }),
+    ).toBeFocused();
+});
 
 async function createCard(
     page: Page,

@@ -45,21 +45,22 @@ export function CardMediaViewer({
             onNext={index < count - 1 ? () => navigate(index + 1) : undefined}
             position={index + 1}
             count={count}
-        >
-            {item.kind === "code" ? (
-                <CodeViewerContent
-                    key={`code:${item.position}`}
-                    code={codes[item.position - 1]}
-                    index={item.position - 1}
-                />
-            ) : (
-                <ImageContent
-                    key={`image:${item.position}`}
-                    card={card}
-                    position={item.position}
-                />
-            )}
-        </FullScreenViewer>
+            renderItem={(position) =>
+                position <= codes.length ? (
+                    <CodeViewerContent
+                        key={`code:${position}`}
+                        code={codes[position - 1]}
+                        index={position - 1}
+                    />
+                ) : (
+                    <ImageContent
+                        key={`image:${position - codes.length}`}
+                        card={card}
+                        position={position - codes.length}
+                    />
+                )
+            }
+        />
     );
 }
 

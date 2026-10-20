@@ -30,7 +30,7 @@ export function FullScreenViewer({
     closeLabel,
     triggerId,
     onClose,
-    children,
+    renderItem,
     onPrevious,
     onNext,
     position,
@@ -40,7 +40,7 @@ export function FullScreenViewer({
     closeLabel: string;
     triggerId: string;
     onClose: () => void;
-    children: React.ReactNode;
+    renderItem: (position: number) => React.ReactNode;
     onPrevious?: () => void;
     onNext?: () => void;
     position: number;
@@ -50,18 +50,79 @@ export function FullScreenViewer({
     const closeButton = useRef<HTMLButtonElement>(null);
     const [content, setContent] = useState<HTMLDivElement | null>(null);
     const returnFocusId = useRef(triggerId);
-    const gesture = useRef<{ id: number; x: number; y: number } | null>(null);
+    const track = useRef<HTMLDivElement>(null);
+    const motion = useRef<Animation | null>(null);
+    const offset = useRef(0);
+    const [swiping, setSwiping] = useState(false);
+    const gesture = useRef<{
+        id: number;
+        x: number;
+        y: number;
+        animated: boolean;
+    } | null>(null);
+
+    function resetSwipe() {
+        motion.current?.cancel();
+        motion.current = null;
+        gesture.current = null;
+        offset.current = 0;
+        if (track.current) {
+            track.current.style.transform = "";
+        }
+        setSwiping(false);
+    }
+
+    function navigate(direction: number) {
+        resetSwipe();
+        if (direction > 0) {
+            onNext?.();
+        } else {
+            onPrevious?.();
+        }
+    }
+
+    function settleSwipe(direction: number) {
+        const element = track.current;
+        const next = direction > 0 ? onNext : direction < 0 ? onPrevious : null;
+        const reduced = window.matchMedia(
+            "(prefers-reduced-motion: reduce)",
+        ).matches;
+        if (!element || reduced || (!next && offset.current === 0)) {
+            resetSwipe();
+            next?.();
+            return;
+        }
+        motion.current?.cancel();
+        const destination = next ? -direction * element.clientWidth : 0;
+        const animation = element.animate(
+            [
+                { transform: `translate3d(${offset.current}px, 0, 0)` },
+                { transform: `translate3d(${destination}px, 0, 0)` },
+            ],
+            {
+                duration: 220,
+                easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+                fill: "forwards",
+            },
+        );
+        motion.current = animation;
+        void animation.finished.then(
+            () => {
+                resetSwipe();
+                next?.();
+            },
+            () => {},
+        );
+    }
+
+    useEffect(() => () => motion.current?.cancel(), []);
     useLayoutEffect(() => {
         if (content && !content.contains(document.activeElement)) {
             closeButton.current?.focus();
         }
     }, [content, positionLabel]);
     const wheelNavigate = useEffectEvent((direction: number) => {
-        if (direction > 0) {
-            onNext?.();
-        } else {
-            onPrevious?.();
-        }
+        navigate(direction);
     });
 
     useEffect(() => {
@@ -161,11 +222,7 @@ export function FullScreenViewer({
                         return;
                     }
                     event.preventDefault();
-                    if (previous) {
-                        onPrevious?.();
-                    } else {
-                        onNext?.();
-                    }
+                    navigate(previous ? -1 : 1);
                 }}
                 onPointerDown={(event) => {
                     if (
@@ -175,22 +232,57 @@ export function FullScreenViewer({
                         return;
                     }
                     if (!event.isPrimary) {
-                        gesture.current = null;
+                        resetSwipe();
                         return;
                     }
                     if (
+                        count < 2 ||
+                        (window.visualViewport?.scale ?? 1) > 1 ||
                         (event.target as Element).closest(
                             "button, a, input, textarea, select",
                         )
                     ) {
                         return;
                     }
+                    resetSwipe();
+                    const animated = !window.matchMedia(
+                        "(prefers-reduced-motion: reduce)",
+                    ).matches;
                     gesture.current = {
                         id: event.pointerId,
                         x: event.clientX,
                         y: event.clientY,
+                        animated,
                     };
+                    setSwiping(animated);
                     event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                    const start = gesture.current;
+                    if (
+                        !start ||
+                        start.id !== event.pointerId ||
+                        !start.animated
+                    ) {
+                        return;
+                    }
+                    const dx = event.clientX - start.x;
+                    const dy = event.clientY - start.y;
+                    if (
+                        Math.abs(dx) < 10 ||
+                        Math.abs(dx) < Math.abs(dy) * 1.25
+                    ) {
+                        return;
+                    }
+                    const available = dx < 0 ? onNext : onPrevious;
+                    offset.current =
+                        Math.max(
+                            -event.currentTarget.clientWidth,
+                            Math.min(event.currentTarget.clientWidth, dx),
+                        ) * (available ? 1 : 0.2);
+                    if (track.current) {
+                        track.current.style.transform = `translate3d(${offset.current}px, 0, 0)`;
+                    }
                 }}
                 onPointerUp={(event) => {
                     const start = gesture.current;
@@ -204,21 +296,43 @@ export function FullScreenViewer({
                         Math.abs(dx) < 50 ||
                         Math.abs(dx) < Math.abs(dy) * 1.25
                     ) {
+                        settleSwipe(0);
                         return;
                     }
-                    if (dx < 0) {
-                        onNext?.();
-                    } else {
-                        onPrevious?.();
-                    }
+                    settleSwipe(dx < 0 ? 1 : -1);
                 }}
                 onPointerCancel={() => {
                     gesture.current = null;
+                    settleSwipe(0);
                 }}
                 className="fixed inset-0 top-0 left-0 block h-dvh w-dvw max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white ring-0 duration-0 data-open:animate-none data-closed:animate-none sm:max-w-none"
             >
                 <DialogTitle className="sr-only">{title}</DialogTitle>
-                {children}
+                <div
+                    ref={track}
+                    data-slot="gallery-track"
+                    className="absolute inset-0"
+                >
+                    {(swiping
+                        ? [position - 1, position, position + 1].filter(
+                              (item) => item >= 1 && item <= count,
+                          )
+                        : [position]
+                    ).map((item) => (
+                        <div
+                            key={item}
+                            data-slot="gallery-slide"
+                            aria-hidden={item !== position ? true : undefined}
+                            inert={item !== position}
+                            className="absolute inset-0 h-full w-full"
+                            style={{
+                                transform: `translateX(${(item - position) * 100}%)`,
+                            }}
+                        >
+                            {renderItem(item)}
+                        </div>
+                    ))}
+                </div>
                 <span
                     className="pointer-events-none absolute top-[max(0.75rem,env(safe-area-inset-top))] left-1/2 flex h-11 -translate-x-1/2 items-center rounded-lg bg-black/70 px-3 text-sm text-white tabular-nums"
                     role="status"
@@ -237,7 +351,7 @@ export function FullScreenViewer({
                             aria-label="Previous item"
                             disabled={!onPrevious}
                             focusableWhenDisabled
-                            onClick={onPrevious}
+                            onClick={() => navigate(-1)}
                         >
                             <ChevronRightIcon className="rotate-180" />
                         </Button>
@@ -249,7 +363,7 @@ export function FullScreenViewer({
                             aria-label="Next item"
                             disabled={!onNext}
                             focusableWhenDisabled
-                            onClick={onNext}
+                            onClick={() => navigate(1)}
                         >
                             <ChevronRightIcon />
                         </Button>

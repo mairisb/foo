@@ -165,13 +165,14 @@ export function CardCodes({
                     }
                     position={codePosition}
                     count={codes.length}
-                >
-                    <CodeViewerContent
-                        key={codeKey(selectedCode)}
-                        code={selectedCode}
-                        index={codePosition - 1}
-                    />
-                </FullScreenViewer>
+                    renderItem={(position) => (
+                        <CodeViewerContent
+                            key={codeKey(codes[position - 1])}
+                            code={codes[position - 1]}
+                            index={position - 1}
+                        />
+                    )}
+                />
             )}
         </section>
     );

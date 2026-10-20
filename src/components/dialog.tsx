@@ -66,7 +66,11 @@ export function Dialog({
         >
             <DialogContent
                 ref={content}
-                initialFocus={content}
+                initialFocus={() =>
+                    content.current?.hasAttribute("data-nested-dialog-open")
+                        ? false
+                        : content.current
+                }
                 showCloseButton={false}
                 onPaste={onPaste}
                 className={cn(
