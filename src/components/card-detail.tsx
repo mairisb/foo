@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api-client";
 import { CardCodes } from "./card-codes";
-import { ImageViewer } from "./image-viewer";
+import { CardMediaViewer, type CardMediaPosition } from "./card-media-viewer";
 
 function CardImage({
     card,
@@ -68,6 +68,7 @@ export function CardDetail({
     codePosition,
     onOpenCode,
     onCloseCode,
+    onNavigateMedia,
 }: {
     card: Card;
     onClose: () => void;
@@ -79,6 +80,7 @@ export function CardDetail({
     codePosition: number | null;
     onOpenCode: (position: number) => void;
     onCloseCode: () => void;
+    onNavigateMedia: (item: CardMediaPosition) => void;
 }) {
     const [barcodeFailed, setBarcodeFailed] = useState(false);
     const [confirming, setConfirming] = useState(false);
@@ -93,6 +95,11 @@ export function CardDetail({
         Number.isSafeInteger(imagePosition) &&
         imagePosition >= 1 &&
         imagePosition <= card.imageCount;
+    const validCode =
+        codePosition !== null &&
+        Number.isSafeInteger(codePosition) &&
+        codePosition >= 1 &&
+        codePosition <= (card.codes?.length ?? 0);
 
     useEffect(() => {
         if (imagePosition !== null && !validImage) {
@@ -226,6 +233,11 @@ export function CardDetail({
                 codePosition={codePosition}
                 onOpenCode={onOpenCode}
                 onCloseCode={onCloseCode}
+                onNavigateCode={(position) =>
+                    onNavigateMedia({ kind: "code", position })
+                }
+                showViewer={false}
+                triggerPrefix={`card-${card.id}`}
             />
             {Array.from({ length: card.imageCount }, (_, index) => (
                 <CardImage
@@ -263,12 +275,17 @@ export function CardDetail({
                     again.
                 </FieldError>
             )}
-            {validImage && imagePosition !== null && (
-                <ImageViewer
-                    key={imagePosition}
+            {((validImage && imagePosition !== null) ||
+                (validCode && codePosition !== null)) && (
+                <CardMediaViewer
                     card={card}
-                    position={imagePosition}
-                    onClose={onCloseImage}
+                    item={
+                        validCode && codePosition !== null
+                            ? { kind: "code", position: codePosition }
+                            : { kind: "image", position: imagePosition! }
+                    }
+                    onNavigate={onNavigateMedia}
+                    onClose={validCode ? onCloseCode : onCloseImage}
                 />
             )}
         </Dialog>

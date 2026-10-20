@@ -29,7 +29,7 @@ export default defineConfig([
         files: [
             "src/components/card-form.tsx",
             "src/components/card-detail.tsx",
-            "src/components/image-viewer.tsx",
+            "src/components/card-media-viewer.tsx",
             "src/components/card-codes.tsx",
         ],
         rules: {

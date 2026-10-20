@@ -25,13 +25,14 @@ export default defineConfig({
             testMatch: [
                 "**/wallet.spec.ts",
                 "**/codes.spec.ts",
+                "**/gallery.spec.ts",
                 "**/hydration.spec.ts",
             ],
             use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" },
         },
         {
             name: "android",
-            testMatch: "**/wallet.spec.ts",
+            testMatch: ["**/wallet.spec.ts", "**/gallery.spec.ts"],
             grep: /browser Back|Scanic/,
             use: {
                 ...devices["Pixel 7"],
@@ -54,6 +55,7 @@ export default defineConfig({
                       testMatch: [
                           "**/wallet.spec.ts",
                           "**/codes.spec.ts",
+                          "**/gallery.spec.ts",
                           "**/hydration.spec.ts",
                       ],
                       use: {

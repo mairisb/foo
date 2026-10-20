@@ -136,3 +136,19 @@
 .app-root {
     isolation: isolate;
 }
+
+.full-screen-navigation {
+    display: none;
+    translate: 0 -50%;
+    transition: none;
+}
+
+.full-screen-navigation[aria-disabled="true"] {
+    opacity: 0.5;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .full-screen-navigation {
+        display: inline-flex;
+    }
+}

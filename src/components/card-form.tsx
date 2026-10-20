@@ -116,6 +116,7 @@ export function CardForm({
     codePosition,
     onOpenCode,
     onCloseCode,
+    onNavigateCode,
 }: {
     card?: Card;
     onSave: (card: Card) => void;
@@ -129,6 +130,7 @@ export function CardForm({
     codePosition: number | null;
     onOpenCode: (position: number) => void;
     onCloseCode: () => void;
+    onNavigateCode: (position: number) => void;
 }) {
     const [busy, setBusy] = useState(false);
     const [codes, setCodes] = useState<CardCode[]>(card?.codes ?? []);
@@ -542,6 +544,7 @@ export function CardForm({
                         codePosition={codePosition}
                         onOpenCode={onOpenCode}
                         onCloseCode={onCloseCode}
+                        onNavigateCode={onNavigateCode}
                         onRemove={(index) =>
                             setCodes((current) =>
                                 current.filter(

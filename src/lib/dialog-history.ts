@@ -98,6 +98,18 @@ function createDialogHistory() {
             }
             window.history.back();
         },
+        replace(next: Exclude<DialogView, "">) {
+            if (pending || next === view) {
+                return;
+            }
+            window.history.replaceState(
+                { ...window.history.state, fooDialog: next },
+                "",
+                window.location.href,
+            );
+            view = next;
+            changed();
+        },
         setPending(value: boolean) {
             pending = value;
         },
@@ -114,6 +126,7 @@ export function useDialogHistory() {
     return {
         view,
         open: history.open,
+        replace: history.replace,
         close: history.close,
         setPending: history.setPending,
     };

@@ -179,6 +179,9 @@ export function Wallet({
                             navigation.open(`add:code:${position}`)
                         }
                         onCloseCode={closeDialog}
+                        onNavigateCode={(position) =>
+                            navigation.replace(`add:code:${position}`)
+                        }
                         adjustingId={adjustingId}
                         previewing={previewing}
                         onOpenPreview={openPreview}
@@ -202,6 +205,11 @@ export function Wallet({
                             )
                         }
                         onCloseCode={closeDialog}
+                        onNavigateCode={(position) =>
+                            navigation.replace(
+                                `edit:${editing.id}:code:${position}`,
+                            )
+                        }
                         adjustingId={adjustingId}
                         previewing={previewing}
                         onOpenPreview={openPreview}
@@ -225,6 +233,11 @@ export function Wallet({
                             )
                         }
                         onCloseCode={closeDialog}
+                        onNavigateMedia={({ kind, position }) =>
+                            navigation.replace(
+                                `card:${selected.id}:${kind}:${position}`,
+                            )
+                        }
                         onClose={() => navigation.close()}
                         onDelete={remove}
                         onEdit={edit}
