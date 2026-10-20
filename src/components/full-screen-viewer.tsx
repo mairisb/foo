@@ -56,6 +56,7 @@ export function FullScreenViewer({
     const hasPrevious = position > 1;
     const hasNext = position < count;
     const [swiping, setSwiping] = useState(false);
+    const [motionRequest, setMotionRequest] = useState(0);
     const gesture = useRef<{
         id: number;
         x: number;
@@ -82,6 +83,16 @@ export function FullScreenViewer({
         );
         resetSwipe();
         if (next !== cursor.current) {
+            const element = track.current;
+            if (
+                element &&
+                !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ) {
+                pendingOffset.current =
+                    Math.sign(direction) * element.clientWidth;
+                setSwiping(true);
+                setMotionRequest((request) => request + 1);
+            }
             cursor.current = next;
             onNavigate(next);
         }
@@ -138,6 +149,7 @@ export function FullScreenViewer({
         motion.current = null;
         pendingOffset.current =
             offset.current + direction * element.clientWidth;
+        setMotionRequest((request) => request + 1);
         cursor.current = next;
         onNavigate(next);
     }
@@ -151,11 +163,17 @@ export function FullScreenViewer({
     });
     useLayoutEffect(() => {
         cursor.current = position;
-        startPendingSwipe();
     }, [position]);
+    useLayoutEffect(() => {
+        startPendingSwipe();
+    }, [position, motionRequest]);
     useEffect(() => () => motion.current?.cancel(), []);
     useLayoutEffect(() => {
-        if (content && !content.contains(document.activeElement)) {
+        const focused = document.activeElement;
+        if (
+            content &&
+            (!content.contains(focused) || focused?.closest("[inert]"))
+        ) {
             closeButton.current?.focus();
         }
     }, [content, positionLabel]);

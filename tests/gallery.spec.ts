@@ -286,6 +286,129 @@ test("rapid gallery wheel and swipes interrupt animations and retain browser Bac
     await expect(counter).toHaveText("2/4");
 });
 
+test("desktop gallery controls animate without blocking rapid navigation", async ({
+    page,
+    isMobile,
+}, testInfo) => {
+    test.skip(isMobile, "Desktop controls are covered with a fine pointer.");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await register(page.request);
+    await createCard(page, "Desktop animation");
+    await page.goto("/");
+    await page
+        .getByRole("button", { name: "Open Desktop animation", exact: true })
+        .click();
+    const opener = page.getByRole("button", {
+        name: "Open code 1 full size",
+        exact: true,
+    });
+    await opener.click();
+    const viewer = page.getByRole("dialog", {
+        name: /^(Code [12]:|Image [12] of Desktop animation)/,
+    });
+    const counter = viewer.getByRole("status", { name: /of 4$/ });
+    const track = viewer.locator('[data-slot="gallery-track"]');
+    const next = viewer.getByRole("button", { name: "Next item", exact: true });
+    const previous = viewer.getByRole("button", {
+        name: "Previous item",
+        exact: true,
+    });
+    await expect(
+        viewer.getByRole("button", { name: "Close code", exact: true }),
+    ).toBeFocused();
+    const nextBox = await next.boundingBox();
+    const historyLength = await page.evaluate(() => history.length);
+    // Pause each animation as it is created so every next action interrupts it.
+    await track.evaluate((element) => {
+        const animate = element.animate.bind(element);
+        element.animate = (...args) => {
+            const animation = animate(...args);
+            animation.pause();
+            return animation;
+        };
+    });
+    async function animatedAt(position: number, direction: number) {
+        await expect(counter).toHaveText(`${position}/4`);
+        await expect
+            .poll(() =>
+                track.evaluate((element) =>
+                    element
+                        .getAnimations()
+                        .map((animation) => animation.playState),
+                ),
+            )
+            .toEqual(["paused"]);
+        const offsets = await track.evaluate((element) =>
+            (element.getAnimations()[0].effect as KeyframeEffect)
+                .getKeyframes()
+                .map(
+                    (frame) =>
+                        new DOMMatrixReadOnly(String(frame.transform)).m41,
+                ),
+        );
+        expect(offsets).toEqual([direction * page.viewportSize()!.width, 0]);
+        expect(await next.boundingBox()).toEqual(nextBox);
+        await expect(viewer.getByRole("img")).toHaveCount(1);
+    }
+    await next.click();
+    await animatedAt(2, 1);
+    await previous.click();
+    await animatedAt(1, -1);
+    await page.keyboard.press("ArrowRight");
+    await animatedAt(2, 1);
+    await page.keyboard.press("ArrowDown");
+    await animatedAt(3, 1);
+    await track.evaluate((element) => {
+        element.getAnimations()[0].currentTime = 110;
+    });
+    await page.screenshot({
+        path: testInfo.outputPath("desktop-gallery-slide.png"),
+        scale: "css",
+    });
+    await page.keyboard.press("ArrowLeft");
+    await animatedAt(2, -1);
+    async function wheel(deltas: number[]) {
+        await viewer.evaluate((element, deltas) => {
+            for (const deltaY of deltas) {
+                element.dispatchEvent(
+                    new WheelEvent("wheel", {
+                        deltaY,
+                        bubbles: true,
+                        cancelable: true,
+                    }),
+                );
+            }
+        }, deltas);
+    }
+    await wheel([1]);
+    await animatedAt(3, 1);
+    await wheel([-1]);
+    await animatedAt(2, -1);
+    // A same-frame reversal returns to the same item with a fresh animation.
+    await wheel([1, -1]);
+    await animatedAt(2, -1);
+    await wheel([1, 1]);
+    await animatedAt(4, 1);
+    await wheel([1]);
+    await expect(counter).toHaveText("4/4");
+    expect(
+        await track.evaluate((element) => element.getAnimations().length),
+    ).toBe(0);
+    await previous.click();
+    await animatedAt(3, -1);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    await page.keyboard.press("Escape");
+    await expect(opener).toBeFocused();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await opener.click();
+    await next.click();
+    await expect(counter).toHaveText("2/4");
+    expect(
+        await track.evaluate((element) => element.getAnimations().length),
+    ).toBe(0);
+    await expect(track.locator('[data-slot="gallery-slide"]')).toHaveCount(1);
+});
+
 test("gallery browses codes and images with chevrons, wheel, swipes, and browser Back", async ({
     page,
     isMobile,
@@ -546,7 +669,7 @@ test("long code values scroll without switching items and modified wheel gesture
         .getByRole("button", { name: "Open code 1 full size", exact: true })
         .click();
     const viewer = page.getByRole("dialog", { name: /^Code [12]:/ });
-    const value = viewer.locator("[data-viewer-scroll]");
+    const value = viewer.getByRole("code");
     await expect
         .poll(() =>
             value.evaluate(

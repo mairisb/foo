@@ -56,6 +56,7 @@ export function CardMediaViewer({
                         key={`image:${position - codes.length}`}
                         card={card}
                         position={position - codes.length}
+                        active={position === index + 1}
                     />
                 )
             }
@@ -63,12 +64,24 @@ export function CardMediaViewer({
     );
 }
 
-function ImageContent({ card, position }: { card: Card; position: number }) {
-    const [failed, setFailed] = useState(false);
+function ImageContent({
+    card,
+    position,
+    active,
+}: {
+    card: Card;
+    position: number;
+    active: boolean;
+}) {
+    const [status, setStatus] = useState({ active, failed: false });
+    // Retry a failed preview when it becomes the selected slide again.
+    if (active !== status.active) {
+        setStatus({ active, failed: active ? false : status.failed });
+    }
 
     return (
         <>
-            {failed ? (
+            {status.failed ? (
                 <p
                     role="alert"
                     className="flex h-full items-center justify-center p-16 text-center"
@@ -81,7 +94,7 @@ function ImageContent({ card, position }: { card: Card; position: number }) {
                     alt={`Image ${position} of ${card.label}`}
                     className="h-full w-full object-contain"
                     draggable={false}
-                    onError={() => setFailed(true)}
+                    onError={() => setStatus({ active, failed: true })}
                 />
             )}
         </>
